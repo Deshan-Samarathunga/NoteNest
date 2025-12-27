@@ -12,26 +12,26 @@ import {
   TextInput,
   ToggleButton,
 } from 'react-native-paper';
-
-import { useDatabase } from '@/src/hooks/use-database';
 import * as ImagePicker from 'expo-image-picker';
-import { AttachmentsRepo } from '@/src/repositories/attachmentsRepo';
-import { LabelsRepo } from '@/src/repositories/labelsRepo';
-import { NotesRepo } from '@/src/repositories/notesRepo';
-import { Attachment, ChecklistItem, Label, Note, NoteType } from '@/src/types/models';
+
+import { pushNotes } from '@/src/api/notes';
+import { uploadAttachmentFromUri } from '@/src/api/attachments';
+import { AttachmentMeta, ChecklistItem, Label, NotePayload } from '@/src/api/types';
+import { loadCachedNotes, saveCachedNotes } from '@/src/cache/notesCache';
+import { fetchLabels } from '@/src/api/labels';
+import { loadCachedLabels, saveCachedLabels } from '@/src/cache/labelsCache';
 import { cancelReminder, ensureNotificationPermissions, scheduleReminder } from '@/src/services/remindersService';
 import { ChecklistEditor } from '@/src/ui/components/ChecklistEditor';
 import { ColorPicker } from '@/src/ui/components/ColorPicker';
-import { LabelPicker } from '@/src/ui/components/LabelPicker';
 import { AttachmentStrip } from '@/src/ui/components/AttachmentStrip';
+import { LabelPicker } from '@/src/ui/components/LabelPicker';
 
 export default function NoteDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  const db = useDatabase();
-  const [note, setNote] = useState<Note | null>(null);
+  const [note, setNote] = useState<NotePayload | null>(null);
   const [title, setTitle] = useState('');
   const [body, setBody] = useState('');
-  const [noteType, setNoteType] = useState<NoteType>('TEXT');
+  const [noteType, setNoteType] = useState<'TEXT' | 'CHECKLIST'>('TEXT');
   const [checklistItems, setChecklistItems] = useState<ChecklistItem[]>([]);
   const [pinned, setPinned] = useState(false);
   const [archived, setArchived] = useState(false);
@@ -39,55 +39,43 @@ export default function NoteDetailScreen() {
   const [color, setColor] = useState<number>(0xffffff);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [labels, setLabels] = useState<Label[]>([]);
-  const [selectedLabelIds, setSelectedLabelIds] = useState<string[]>([]);
-  const [labelDialogVisible, setLabelDialogVisible] = useState(false);
-  const [attachments, setAttachments] = useState<Attachment[]>([]);
+  const [attachments, setAttachments] = useState<AttachmentMeta[]>([]);
   const [reminderInput, setReminderInput] = useState('');
   const [notificationId, setNotificationId] = useState<string | null>(null);
   const [reminderAt, setReminderAt] = useState<number | null>(null);
+  const [labels, setLabels] = useState<Label[]>([]);
+  const [selectedLabelIds, setSelectedLabelIds] = useState<string[]>([]);
+  const [labelDialogVisible, setLabelDialogVisible] = useState(false);
+  const [uploadingAttachment, setUploadingAttachment] = useState(false);
 
   useEffect(() => {
     const load = async () => {
-      if (!db || !id) return;
+      if (!id) return;
       setLoading(true);
-      const repo = new NotesRepo(db);
-      const labelRepo = new LabelsRepo(db);
-      const attachmentRepo = new AttachmentsRepo(db);
-      const existing = await repo.getById(id);
-      const allLabels = await labelRepo.list();
-      let noteLabels: Label[] = [];
-      let checklist: ChecklistItem[] = [];
-      let noteAttachments: Attachment[] = [];
-      if (existing) {
-        checklist = await repo.getChecklist(existing.id);
-        noteLabels = await labelRepo.getLabelsForNote(existing.id);
-        noteAttachments = await attachmentRepo.listByNote(existing.id);
-      }
-      setLabels(allLabels);
-      setNote(existing);
-      if (existing) {
-        setTitle(existing.title ?? '');
-        setBody(existing.body ?? '');
-        setPinned(existing.pinned);
-        setArchived(existing.archived);
-        setTrashed(existing.trashed);
-        setColor(existing.color);
-        setNoteType(existing.type);
-        setChecklistItems(checklist);
-        setSelectedLabelIds(noteLabels.map((l) => l.id));
-        setAttachments(noteAttachments);
-        setNotificationId(existing.notificationId ?? null);
-        setReminderAt(existing.reminderAt ?? null);
-        if (existing.reminderAt) {
-          setReminderInput(dayjs(existing.reminderAt).format('YYYY-MM-DD HH:mm'));
+      const cached = await loadCachedNotes();
+      const found = cached.find((n) => n.id === id) || null;
+      setNote(found);
+      if (found) {
+        setTitle(found.title ?? '');
+        setBody(found.body ?? '');
+        setPinned(Boolean(found.pinned));
+        setArchived(Boolean(found.archived));
+        setTrashed(Boolean(found.trashed));
+        setColor(found.color ?? 0xffffff);
+        setNoteType(found.type ?? 'TEXT');
+        setChecklistItems(found.checklist ?? []);
+        setAttachments(found.attachments ?? []);
+        setNotificationId(found.notificationId ?? null);
+        setReminderAt(found.reminderAt ?? null);
+        setSelectedLabelIds(found.labels ?? []);
+        if (found.reminderAt) {
+          setReminderInput(dayjs(found.reminderAt).format('YYYY-MM-DD HH:mm'));
         }
       }
       setLoading(false);
     };
-
     load();
-  }, [db, id]);
+  }, [id]);
 
   const normalizedChecklist = useMemo(
     () =>
@@ -97,14 +85,23 @@ export default function NoteDetailScreen() {
     [checklistItems]
   );
 
-  const updateNote = async (patch: Partial<Note>) => {
-    if (!db || !id) return;
-    const repo = new NotesRepo(db);
-    await repo.update(id, { ...patch, updatedAt: Date.now() });
-  };
+  useEffect(() => {
+    const loadLabels = async () => {
+      const cached = await loadCachedLabels();
+      if (cached.length) setLabels(cached);
+      try {
+        const remote = await fetchLabels();
+        setLabels(remote);
+        await saveCachedLabels(remote);
+      } catch {
+        // best effort
+      }
+    };
+    loadLabels();
+  }, []);
 
   const onSave = async () => {
-    if (!note || !db || saving) return;
+    if (!note || saving) return;
     const reminderText = reminderInput.trim();
     const parsedReminder = reminderText ? dayjs(reminderText) : null;
     if (parsedReminder && !parsedReminder.isValid()) {
@@ -115,119 +112,90 @@ export default function NoteDetailScreen() {
     const newReminderAt = parsedReminder ? parsedReminder.valueOf() : null;
     setSaving(true);
     try {
-      const repo = new NotesRepo(db);
-      const labelRepo = new LabelsRepo(db);
-      await db.withTransactionAsync(async () => {
-        await repo.update(note.id, {
-          title: title.trim() || null,
-          body: noteType === 'TEXT' ? body.trim() || null : null,
-          color,
-          pinned,
-          archived,
-          trashed,
-          type: noteType,
-          reminderAt: newReminderAt,
-          updatedAt: Date.now(),
-        });
-        if (noteType === 'CHECKLIST') {
-          await repo.replaceChecklist(
-            note.id,
-            normalizedChecklist.map((item) => ({ ...item, noteId: note.id }))
-          );
-        } else {
-          await repo.replaceChecklist(note.id, []);
-        }
-        await labelRepo.replaceNoteLabels(note.id, selectedLabelIds);
-        const attachmentRepo = new AttachmentsRepo(db);
-        await attachmentRepo.replaceForNote(note.id, attachments);
+      if (notificationId && newReminderAt !== reminderAt) {
+        await cancelReminder(notificationId);
+        setNotificationId(null);
+      }
 
-        if (notificationId && newReminderAt !== reminderAt) {
-          await cancelReminder(notificationId);
-          setNotificationId(null);
+      let scheduledId = notificationId;
+      if (newReminderAt) {
+        const granted = await ensureNotificationPermissions();
+        if (granted) {
+          scheduledId = await scheduleReminder({
+            noteId: note.id,
+            reminderAt: newReminderAt,
+            title: title || 'Reminder',
+            body: body || 'Open your note',
+          });
         }
+      }
 
-        let scheduledId = notificationId;
-        if (newReminderAt) {
-          const granted = await ensureNotificationPermissions();
-          if (granted) {
-            scheduledId = await scheduleReminder({
-              noteId: note.id,
-              reminderAt: newReminderAt,
-              title: title || 'Reminder',
-              body: body || 'Open your note',
-            });
-          }
-        }
+      const updated: NotePayload = {
+        ...note,
+        title: title.trim() || null,
+        body: noteType === 'TEXT' ? body.trim() || null : null,
+        type: noteType,
+        createdAt: note.createdAt ?? note.updatedAt ?? Date.now(),
+        checklist: noteType === 'CHECKLIST' ? normalizedChecklist : [],
+        labels: selectedLabelIds,
+        color,
+        pinned,
+        archived,
+        trashed,
+        attachments,
+        reminderAt: newReminderAt,
+        notificationId: scheduledId ?? null,
+        updatedAt: Date.now(),
+      };
 
-        setReminderAt(newReminderAt);
-        setNotificationId(scheduledId ?? null);
-        await repo.update(note.id, {
-          reminderAt: newReminderAt,
-          notificationId: scheduledId ?? null,
-          updatedAt: Date.now(),
-        });
-      });
+      await pushNotes([updated]);
+      // update cache
+      const cached = await loadCachedNotes();
+      const nextCache = cached.some((n) => n.id === updated.id)
+        ? cached.map((n) => (n.id === updated.id ? updated : n))
+        : [updated, ...cached];
+      await saveCachedNotes(nextCache);
       router.back();
     } finally {
       setSaving(false);
     }
   };
 
-  const togglePinned = async () => {
-    const next = !pinned;
-    setPinned(next);
-    await updateNote({ pinned: next });
-  };
-
-  const toggleArchived = async () => {
-    const next = !archived;
-    setArchived(next);
-    if (next) {
-      setTrashed(false);
-      await updateNote({ archived: next, trashed: false });
-    } else {
-      await updateNote({ archived: next });
-    }
-  };
-
   const toggleTrashed = async () => {
     const next = !trashed;
     setTrashed(next);
-    if (next) {
-      setArchived(false);
-      setPinned(false);
-      if (notificationId) {
-        await cancelReminder(notificationId);
-        setNotificationId(null);
-      }
-      await updateNote({ trashed: true, archived: false, pinned: false, notificationId: null });
-      router.back();
-    } else {
-      await updateNote({ trashed: false });
+    if (next && notificationId) {
+      await cancelReminder(notificationId);
+      setNotificationId(null);
     }
   };
 
   const pickImage = async () => {
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!permission.granted) return;
+    setUploadingAttachment(true);
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
       quality: 0.8,
       allowsMultipleSelection: false,
     });
-    if (result.canceled || !result.assets?.length) return;
+    if (result.canceled || !result.assets?.length) {
+      setUploadingAttachment(false);
+      return;
+    }
     const asset = result.assets[0];
-    const attachment: Attachment = {
-      id: `${note?.id ?? 'new'}-att-${Date.now()}`,
-      noteId: note?.id ?? '',
-      uri: asset.uri,
-      mimeType: asset.mimeType ?? undefined,
-      createdAt: Date.now(),
-    };
-    setAttachments((prev) => [attachment, ...prev]);
+    try {
+      const uploaded = await uploadAttachmentFromUri(asset.uri, asset.mimeType);
+      setAttachments((prev) => [uploaded, ...prev]);
+    } catch (err) {
+      Alert.alert('Upload failed', 'Could not upload the image. Please try again.');
+      console.error(err);
+    } finally {
+      setUploadingAttachment(false);
+    }
   };
 
-  if (!db || loading) {
+  if (loading) {
     return (
       <View style={styles.loading}>
         <ActivityIndicator />
@@ -250,12 +218,11 @@ export default function NoteDetailScreen() {
         value={noteType}
         onValueChange={(value) => {
           if (!value) return;
-          const next = value as NoteType;
+          const next = value as 'TEXT' | 'CHECKLIST';
           if (next === 'CHECKLIST' && checklistItems.length === 0) {
             setChecklistItems([
               {
                 id: `${note.id}-item-1`,
-                noteId: note.id,
                 text: body || '',
                 checked: false,
                 sortOrder: 0,
@@ -306,7 +273,7 @@ export default function NoteDetailScreen() {
           onAddItem={() =>
             setChecklistItems((prev) => [
               ...prev,
-              { id: `${note.id}-${prev.length + 1}`, noteId: note.id, text: '', checked: false, sortOrder: prev.length },
+              { id: `${note.id}-${prev.length + 1}`, text: '', checked: false, sortOrder: prev.length },
             ])
           }
           onRemoveItem={(id) => setChecklistItems((prev) => prev.filter((item) => item.id !== id))}
@@ -332,11 +299,11 @@ export default function NoteDetailScreen() {
       )}
       <View style={styles.row}>
         <Text>Pin</Text>
-        <Switch value={pinned} onValueChange={togglePinned} />
+        <Switch value={pinned} onValueChange={setPinned} />
       </View>
       <View style={styles.row}>
         <Text>Archive</Text>
-        <Switch value={archived} onValueChange={toggleArchived} />
+        <Switch value={archived} onValueChange={setArchived} />
       </View>
       <View style={styles.row}>
         <Text>Trash</Text>
@@ -353,6 +320,7 @@ export default function NoteDetailScreen() {
           onAdd={pickImage}
           onRemove={(id) => setAttachments((prev) => prev.filter((a) => a.id !== id))}
         />
+        {uploadingAttachment ? <Text>Uploading attachment...</Text> : null}
       </View>
       <View style={styles.section}>
         <Text variant="labelLarge">Reminder (YYYY-MM-DD HH:mm)</Text>
@@ -380,11 +348,12 @@ export default function NoteDetailScreen() {
               labels={labels}
               selectedIds={selectedLabelIds}
               onToggle={(labelId) =>
-                setSelectedLabelIds((prev) =>
-                  prev.includes(labelId) ? prev.filter((id) => id !== labelId) : [...prev, labelId]
-                )
+                setSelectedLabelIds((prev) => (prev.includes(labelId) ? prev.filter((l) => l !== labelId) : [...prev, labelId]))
               }
-              onManageLabels={() => router.push('/(drawer)/labels')}
+              onManageLabels={() => {
+                setLabelDialogVisible(false);
+                router.push('/labels');
+              }}
             />
           </Dialog.Content>
           <Dialog.Actions>

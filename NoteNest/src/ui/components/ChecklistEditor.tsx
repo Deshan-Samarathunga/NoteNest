@@ -2,7 +2,7 @@ import React from 'react';
 import { FlatList, StyleSheet, View } from 'react-native';
 import { Checkbox, IconButton, TextInput } from 'react-native-paper';
 
-import { ChecklistItem } from '@/src/types/models';
+import { ChecklistItem } from '@/src/api/types';
 
 type ChecklistEditorProps = {
   items: ChecklistItem[];

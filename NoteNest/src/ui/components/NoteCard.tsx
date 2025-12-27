@@ -3,12 +3,12 @@ import { StyleProp, StyleSheet, View, ViewStyle } from 'react-native';
 import { Image } from 'expo-image';
 import { Card, Chip, Text } from 'react-native-paper';
 
-import { Attachment, Label, Note } from '@/src/types/models';
+import { AttachmentMeta, Label, NotePayload } from '@/src/api/types';
 
 type NoteCardProps = {
-  note: Note;
-  labels?: Label[];
-  attachments?: Attachment[];
+  note: NotePayload;
+  labels?: Array<Pick<Label, 'id' | 'name'>>;
+  attachments?: AttachmentMeta[];
   onPress?: () => void;
   onLongPress?: () => void;
   style?: StyleProp<ViewStyle>;

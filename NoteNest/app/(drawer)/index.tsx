@@ -1,16 +1,15 @@
-import { useFocusEffect } from 'expo-router';
-import { Stack, router } from 'expo-router';
+import { useFocusEffect, Stack, router } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 import { ActivityIndicator, Chip, FAB, Searchbar, Text, ToggleButton } from 'react-native-paper';
 
-import { useDatabase } from '@/src/hooks/use-database';
-import { AttachmentsRepo } from '@/src/repositories/attachmentsRepo';
-import { LabelsRepo } from '@/src/repositories/labelsRepo';
-import { NotesRepo } from '@/src/repositories/notesRepo';
+import { pullNotes } from '@/src/api/notes';
+import { AttachmentMeta, Label, NotePayload } from '@/src/api/types';
+import { fetchLabels } from '@/src/api/labels';
+import { loadCachedLabels, saveCachedLabels } from '@/src/cache/labelsCache';
+import { loadCachedNotes, saveCachedNotes } from '@/src/cache/notesCache';
 import { useSettingsStore } from '@/src/store/settingsStore';
 import { useNotesUiStore } from '@/src/store/notesUiStore';
-import { Attachment, Label, Note } from '@/src/types/models';
 import { EmptyState } from '@/src/ui/components/EmptyState';
 import { NoteCard } from '@/src/ui/components/NoteCard';
 
@@ -19,10 +18,9 @@ const colorIntToHex = (value: number | undefined) =>
   `#${(value ?? 0xffffff).toString(16).padStart(6, '0')}`;
 
 export default function HomeScreen() {
-  const db = useDatabase();
-  const [notes, setNotes] = useState<Note[]>([]);
+  const [notes, setNotes] = useState<NotePayload[]>([]);
   const [labels, setLabels] = useState<Label[]>([]);
-  const [attachments, setAttachments] = useState<Record<string, Attachment[]>>({});
+  const [attachments, setAttachments] = useState<Record<string, AttachmentMeta[]>>({});
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const layout = useNotesUiStore((state) => state.layout);
@@ -39,55 +37,91 @@ export default function HomeScreen() {
   const sortBy = useNotesUiStore((state) => state.sortBy);
   const setSortBy = useNotesUiStore((state) => state.setSortBy);
   const defaultLayout = useSettingsStore((s) => s.defaultLayout);
-
-  const loadLabels = useCallback(async () => {
-    if (!db) return;
-    const repo = new LabelsRepo(db);
-    const list = await repo.list();
-    setLabels(list);
-  }, [db]);
+  const labelMap = useMemo(
+    () =>
+      labels.reduce<Record<string, Label>>((acc, label) => {
+        acc[label.id] = label;
+        return acc;
+      }, {}),
+    [labels]
+  );
 
   const loadNotes = useCallback(async () => {
-    if (!db) return;
+    const cached = await loadCachedNotes();
+    const cachedLabels = await loadCachedLabels();
+    if (cached.length) {
+      setNotes(cached);
+      const attachmentMap: Record<string, AttachmentMeta[]> = {};
+      cached.forEach((n) => {
+        if (n.attachments) attachmentMap[n.id] = n.attachments;
+      });
+      setAttachments(attachmentMap);
+    }
+    if (cachedLabels.length) {
+      setLabels(cachedLabels);
+    }
     setLoading(true);
     try {
-      const repo = new NotesRepo(db);
-      const attachmentsRepo = new AttachmentsRepo(db);
-      const results = await repo.list({
-        search,
-        labelId: selectedLabelId ?? undefined,
-        color: colorFilter ?? undefined,
-        includePinned: showPinnedOnly ? true : undefined,
-        includeArchived: false,
-        includeTrashed: false,
-        sortBy,
+      const result = await pullNotes(0);
+      const fetched = result.notes;
+      const fetchedLabels = result.labels ?? (await fetchLabels());
+      setNotes(fetched);
+      setLabels(fetchedLabels);
+      const attachmentMap: Record<string, AttachmentMeta[]> = {};
+      fetched.forEach((n) => {
+        if (n.attachments) attachmentMap[n.id] = n.attachments;
       });
-      setNotes(results);
-      const attachmentMap = await attachmentsRepo.listByNoteIds(results.map((n) => n.id));
       setAttachments(attachmentMap);
+      await saveCachedNotes(fetched);
+      await saveCachedLabels(fetchedLabels);
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [db, search, selectedLabelId, colorFilter, showPinnedOnly]);
+  }, []);
 
   useEffect(() => {
     setLayout(defaultLayout);
     loadNotes();
-    loadLabels();
-  }, [loadNotes, loadLabels, defaultLayout, setLayout]);
+  }, [loadNotes, defaultLayout, setLayout]);
 
   useFocusEffect(
     useCallback(() => {
       loadNotes();
-      loadLabels();
-    }, [loadNotes, loadLabels])
+    }, [loadNotes])
   );
 
-  const pinned = useMemo(() => notes.filter((n) => n.pinned), [notes]);
-  const others = useMemo(() => notes.filter((n) => !n.pinned), [notes]);
+  const filtered = useMemo(() => {
+    return notes
+      .filter((n) => {
+        if (n.trashed) return false;
+        if (n.archived) return false;
+        if (selectedLabelId && !(n.labels || []).includes(selectedLabelId)) return false;
+        if (colorFilter !== null && colorFilter !== undefined && n.color !== colorFilter) return false;
+        if (showPinnedOnly && !n.pinned) return false;
+        if (search.trim()) {
+          const term = search.trim().toLowerCase();
+          const body = n.body || '';
+          const title = n.title || '';
+          const checklistText = (n.checklist || []).map((i) => i.text).join(' ');
+          return (
+            title.toLowerCase().includes(term) ||
+            body.toLowerCase().includes(term) ||
+            checklistText.toLowerCase().includes(term)
+          );
+        }
+        return true;
+      })
+      .sort((a, b) => {
+        const sortField = sortBy === 'createdAt' ? 'createdAt' : 'updatedAt';
+        return (b[sortField] || 0) - (a[sortField] || 0);
+      });
+  }, [notes, selectedLabelId, colorFilter, showPinnedOnly, search, sortBy]);
 
-  const renderNotes = (items: Note[]) => {
+  const filteredPinned = useMemo(() => filtered.filter((n) => n.pinned), [filtered]);
+  const filteredOthers = useMemo(() => filtered.filter((n) => !n.pinned), [filtered]);
+
+  const renderNotes = (items: NotePayload[]) => {
     if (items.length === 0) {
       return null;
     }
@@ -98,7 +132,10 @@ export default function HomeScreen() {
           {items.map((note) => (
             <NoteCard
               key={note.id}
-              note={note}
+              note={note as any}
+              labels={(note.labels || [])
+                .map((id) => labelMap[id])
+                .filter((l): l is Label => Boolean(l))}
               attachments={attachments[note.id]}
               style={styles.gridCard}
               onPress={() => router.push(`/note/${note.id}`)}
@@ -113,7 +150,10 @@ export default function HomeScreen() {
         {items.map((note) => (
           <NoteCard
             key={note.id}
-            note={note}
+            note={note as any}
+            labels={(note.labels || [])
+              .map((id) => labelMap[id])
+              .filter((l): l is Label => Boolean(l))}
             attachments={attachments[note.id]}
             onPress={() => router.push(`/note/${note.id}`)}
           />
@@ -124,10 +164,10 @@ export default function HomeScreen() {
 
   const onRefresh = () => {
     setRefreshing(true);
-    Promise.all([loadLabels(), loadNotes()]).finally(() => setRefreshing(false));
+    loadNotes().finally(() => setRefreshing(false));
   };
 
-  if (!db || loading) {
+  if (loading) {
     return (
       <View style={styles.loading}>
         <ActivityIndicator />
@@ -191,18 +231,18 @@ export default function HomeScreen() {
       <ScrollView
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
         contentContainerStyle={styles.scroll}>
-        {pinned.length > 0 ? (
+        {filteredPinned.length > 0 ? (
           <View style={styles.section}>
             <Text variant="labelLarge" style={styles.sectionLabel}>
               PINNED
             </Text>
-            {renderNotes(pinned)}
+            {renderNotes(filteredPinned)}
           </View>
         ) : null}
 
         <View style={styles.section}>
-          {others.length > 0 ? (
-            renderNotes(others)
+          {filteredOthers.length > 0 ? (
+            renderNotes(filteredOthers)
           ) : (
             <EmptyState
               title="No notes yet"

@@ -7,13 +7,12 @@ import 'react-native-reanimated';
 import * as Notifications from 'expo-notifications';
 import { useEffect } from 'react';
 import { useRouter } from 'expo-router';
+import { Platform } from 'react-native';
 
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { getAppTheme } from '@/src/ui/theme';
 import { useSettingsStore } from '@/src/store/settingsStore';
-import { openDatabase } from '@/src/db/db';
-import { NotesRepo } from '@/src/repositories/notesRepo';
-import { purgeTrashedNotes } from '@/src/services/purgeService';
+import { purgeOldTrashed } from '@/src/services/purgeService';
 
 export const unstable_settings = {
   anchor: '(drawer)',
@@ -47,16 +46,10 @@ export default function RootLayout() {
   }, [router]);
 
   useEffect(() => {
-    const runPurge = async () => {
-      try {
-        const db = await openDatabase();
-        const repo = new NotesRepo(db);
-        await purgeTrashedNotes(repo, purgeDays);
-      } catch (err) {
-        console.warn('Failed to purge trash on start', err);
-      }
-    };
-    runPurge();
+    purgeOldTrashed(purgeDays).catch((err) => {
+      // eslint-disable-next-line no-console
+      console.warn('purge failed', err);
+    });
   }, [purgeDays]);
 
   return (

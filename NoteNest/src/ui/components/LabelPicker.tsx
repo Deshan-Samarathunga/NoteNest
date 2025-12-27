@@ -2,10 +2,10 @@ import React from 'react';
 import { ScrollView, StyleSheet } from 'react-native';
 import { Button, Checkbox, List, Text } from 'react-native-paper';
 
-import { Label } from '@/src/types/models';
+import { Label } from '@/src/api/types';
 
 type LabelPickerProps = {
-  labels: Label[];
+  labels: Array<Pick<Label, 'id' | 'name'>>;
   selectedIds: string[];
   onToggle: (labelId: string) => void;
   onManageLabels?: () => void;

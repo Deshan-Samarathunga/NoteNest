@@ -1,10 +1,9 @@
 import * as ImagePicker from 'expo-image-picker';
 import { Stack, router } from 'expo-router';
-import React, { useEffect, useMemo, useState } from 'react';
 import dayjs from 'dayjs';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Alert, ScrollView, StyleSheet, View } from 'react-native';
 import {
-  ActivityIndicator,
   Button,
   Dialog,
   Portal,
@@ -15,44 +14,50 @@ import {
 } from 'react-native-paper';
 import { v4 as uuidv4 } from 'uuid';
 
-import { useDatabase } from '@/src/hooks/use-database';
-import { AttachmentsRepo } from '@/src/repositories/attachmentsRepo';
-import { LabelsRepo } from '@/src/repositories/labelsRepo';
-import { NotesRepo } from '@/src/repositories/notesRepo';
-import { Attachment, ChecklistItem, Label, Note, NoteType } from '@/src/types/models';
+import { uploadAttachmentFromUri } from '@/src/api/attachments';
+import { pushNotes } from '@/src/api/notes';
+import { AttachmentMeta, ChecklistItem, Label, NotePayload } from '@/src/api/types';
+import { fetchLabels } from '@/src/api/labels';
+import { loadCachedLabels, saveCachedLabels } from '@/src/cache/labelsCache';
+import { loadCachedNotes, saveCachedNotes } from '@/src/cache/notesCache';
 import { ensureNotificationPermissions, scheduleReminder } from '@/src/services/remindersService';
 import { ChecklistEditor } from '@/src/ui/components/ChecklistEditor';
 import { ColorPicker } from '@/src/ui/components/ColorPicker';
-import { LabelPicker } from '@/src/ui/components/LabelPicker';
 import { AttachmentStrip } from '@/src/ui/components/AttachmentStrip';
+import { LabelPicker } from '@/src/ui/components/LabelPicker';
 
 const DEFAULT_COLOR = 0xffffff;
 
 export default function NewNoteScreen() {
-  const db = useDatabase();
   const [title, setTitle] = useState('');
   const [body, setBody] = useState('');
-  const [noteType, setNoteType] = useState<NoteType>('TEXT');
+  const [noteType, setNoteType] = useState<'TEXT' | 'CHECKLIST'>('TEXT');
   const [checklistItems, setChecklistItems] = useState<ChecklistItem[]>([]);
   const [pinned, setPinned] = useState(false);
   const [archived, setArchived] = useState(false);
   const [color, setColor] = useState<number>(DEFAULT_COLOR);
   const [saving, setSaving] = useState(false);
+  const [attachments, setAttachments] = useState<AttachmentMeta[]>([]);
+  const [uploadingAttachment, setUploadingAttachment] = useState(false);
+  const [reminderInput, setReminderInput] = useState('');
+  const [labelDialogVisible, setLabelDialogVisible] = useState(false);
   const [labels, setLabels] = useState<Label[]>([]);
   const [selectedLabelIds, setSelectedLabelIds] = useState<string[]>([]);
-  const [labelDialogVisible, setLabelDialogVisible] = useState(false);
-  const [attachments, setAttachments] = useState<Attachment[]>([]);
-  const [reminderInput, setReminderInput] = useState('');
 
   useEffect(() => {
     const loadLabels = async () => {
-      if (!db) return;
-      const repo = new LabelsRepo(db);
-      const list = await repo.list();
-      setLabels(list);
+      const cached = await loadCachedLabels();
+      if (cached.length) setLabels(cached);
+      try {
+        const remote = await fetchLabels();
+        setLabels(remote);
+        await saveCachedLabels(remote);
+      } catch {
+        // best effort
+      }
     };
     loadLabels();
-  }, [db]);
+  }, []);
 
   const normalizedChecklist = useMemo(
     () =>
@@ -63,7 +68,7 @@ export default function NewNoteScreen() {
   );
 
   const onSave = async () => {
-    if (!db || saving) return;
+    if (saving) return;
     const reminderText = reminderInput.trim();
     const reminderDate = reminderText ? dayjs(reminderText) : null;
     if (reminderDate && !reminderDate.isValid()) {
@@ -72,65 +77,51 @@ export default function NewNoteScreen() {
     }
 
     setSaving(true);
+    const noteId = uuidv4();
     const now = Date.now();
     let reminderAt = reminderDate ? reminderDate.valueOf() : null;
+    let notificationId: string | null = null;
     if (reminderAt) {
       const granted = await ensureNotificationPermissions();
       if (!granted) {
         reminderAt = null;
+      } else {
+        notificationId = await scheduleReminder({
+          noteId,
+          reminderAt,
+          title: title || 'Reminder',
+          body: body || 'Open your note',
+        });
       }
     }
 
-    const note: Note = {
-      id: uuidv4(),
+    const note: NotePayload = {
+      id: noteId,
       title: title.trim() || null,
       body: noteType === 'TEXT' ? body.trim() || null : null,
       type: noteType,
+      createdAt: now,
+      checklist: noteType === 'CHECKLIST' ? normalizedChecklist : [],
+      labels: selectedLabelIds,
       color,
       pinned,
       archived,
       trashed: false,
       reminderAt,
-      notificationId: null,
-      createdAt: now,
+      notificationId,
+      attachments,
       updatedAt: now,
     };
 
     try {
-      const repo = new NotesRepo(db);
-      const labelRepo = new LabelsRepo(db);
-      const attachmentRepo = new AttachmentsRepo(db);
-      await db.withTransactionAsync(async () => {
-        await repo.create(note);
-        if (noteType === 'CHECKLIST') {
-          await repo.replaceChecklist(
-            note.id,
-            normalizedChecklist.map((item) => ({ ...item, noteId: note.id }))
-          );
-        } else {
-          await repo.replaceChecklist(note.id, []);
-        }
-        for (const labelId of selectedLabelIds) {
-          await labelRepo.assignToNote(note.id, labelId);
-        }
-        for (const attachment of attachments) {
-          await attachmentRepo.create({ ...attachment, noteId: note.id });
-        }
-        if (reminderAt) {
-          const scheduledId =
-            notificationId ||
-            (await scheduleReminder({
-              noteId: note.id,
-              reminderAt,
-              title: note.title || 'Reminder',
-              body: note.body || 'Open your note',
-            }));
-          if (scheduledId) {
-            await repo.update(note.id, { notificationId: scheduledId, updatedAt: Date.now() });
-          }
-        }
-      });
+      await pushNotes([note]);
+      const cached = await loadCachedNotes();
+      const nextCache = [note, ...cached.filter((n) => n.id !== note.id)];
+      await saveCachedNotes(nextCache);
       router.replace(`/note/${note.id}`);
+    } catch (err) {
+      Alert.alert('Save failed', 'Could not save the note. Please try again.');
+      console.error(err);
     } finally {
       setSaving(false);
     }
@@ -139,30 +130,27 @@ export default function NewNoteScreen() {
   const pickImage = async () => {
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!permission.granted) return;
+    setUploadingAttachment(true);
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
       quality: 0.8,
       allowsMultipleSelection: false,
     });
-    if (result.canceled || !result.assets?.length) return;
+    if (result.canceled || !result.assets?.length) {
+      setUploadingAttachment(false);
+      return;
+    }
     const asset = result.assets[0];
-    const attachment: Attachment = {
-      id: uuidv4(),
-      noteId: '',
-      uri: asset.uri,
-      mimeType: asset.mimeType ?? undefined,
-      createdAt: Date.now(),
-    };
-    setAttachments((prev) => [attachment, ...prev]);
+    try {
+      const uploaded = await uploadAttachmentFromUri(asset.uri, asset.mimeType);
+      setAttachments((prev) => [uploaded, ...prev]);
+    } catch (err) {
+      Alert.alert('Upload failed', 'Could not upload the image. Please try again.');
+      console.error(err);
+    } finally {
+      setUploadingAttachment(false);
+    }
   };
-
-  if (!db) {
-    return (
-      <View style={styles.loading}>
-        <ActivityIndicator />
-      </View>
-    );
-  }
 
   return (
     <ScrollView contentContainerStyle={styles.container}>
@@ -171,12 +159,11 @@ export default function NewNoteScreen() {
         value={noteType}
         onValueChange={(value) => {
           if (!value) return;
-          const next = value as NoteType;
+          const next = value as 'TEXT' | 'CHECKLIST';
           if (next === 'CHECKLIST' && checklistItems.length === 0) {
             setChecklistItems([
               {
                 id: uuidv4(),
-                noteId: '',
                 text: body || '',
                 checked: false,
                 sortOrder: 0,
@@ -227,7 +214,7 @@ export default function NewNoteScreen() {
           onAddItem={() =>
             setChecklistItems((prev) => [
               ...prev,
-              { id: uuidv4(), noteId: '', text: '', checked: false, sortOrder: prev.length },
+              { id: uuidv4(), text: '', checked: false, sortOrder: prev.length },
             ])
           }
           onRemoveItem={(id) => setChecklistItems((prev) => prev.filter((item) => item.id !== id))}
@@ -270,6 +257,7 @@ export default function NewNoteScreen() {
           onAdd={pickImage}
           onRemove={(id) => setAttachments((prev) => prev.filter((a) => a.id !== id))}
         />
+        {uploadingAttachment ? <Text>Uploading attachment...</Text> : null}
       </View>
       <View style={styles.section}>
         <Text variant="labelLarge">Reminder (YYYY-MM-DD HH:mm)</Text>
@@ -296,12 +284,13 @@ export default function NewNoteScreen() {
             <LabelPicker
               labels={labels}
               selectedIds={selectedLabelIds}
-              onToggle={(labelId) =>
-                setSelectedLabelIds((prev) =>
-                  prev.includes(labelId) ? prev.filter((id) => id !== labelId) : [...prev, labelId]
-                )
+              onToggle={(id) =>
+                setSelectedLabelIds((prev) => (prev.includes(id) ? prev.filter((l) => l !== id) : [...prev, id]))
               }
-              onManageLabels={() => router.push('/(drawer)/labels')}
+              onManageLabels={() => {
+                setLabelDialogVisible(false);
+                router.push('/labels');
+              }}
             />
           </Dialog.Content>
           <Dialog.Actions>

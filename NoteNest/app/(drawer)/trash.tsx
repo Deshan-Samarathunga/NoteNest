@@ -1,124 +1,120 @@
-import { useFocusEffect } from 'expo-router';
-import { Stack } from 'expo-router';
-import React, { useCallback, useEffect, useState } from 'react';
+import { useFocusEffect, Stack } from 'expo-router';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
-import { ActivityIndicator, Button, Text } from 'react-native-paper';
+import { Button, Divider, Text } from 'react-native-paper';
 
-import { useDatabase } from '@/src/hooks/use-database';
-import { NotesRepo } from '@/src/repositories/notesRepo';
+import { pushNotes } from '@/src/api/notes';
+import { AttachmentMeta, Label, NotePayload } from '@/src/api/types';
+import { fetchLabels } from '@/src/api/labels';
+import { loadCachedLabels, saveCachedLabels } from '@/src/cache/labelsCache';
+import { loadCachedNotes, saveCachedNotes } from '@/src/cache/notesCache';
+import { purgeOldTrashed } from '@/src/services/purgeService';
 import { useSettingsStore } from '@/src/store/settingsStore';
-import { Note } from '@/src/types/models';
-import { purgeTrashedNotes } from '@/src/services/purgeService';
-import { EmptyState } from '@/src/ui/components/EmptyState';
 import { NoteCard } from '@/src/ui/components/NoteCard';
 
 export default function TrashScreen() {
-  const db = useDatabase();
-  const purgeDays = useSettingsStore((s) => s.purgeDays);
-  const [notes, setNotes] = useState<Note[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [notes, setNotes] = useState<NotePayload[]>([]);
+  const [labels, setLabels] = useState<Label[]>([]);
+  const [attachments, setAttachments] = useState<Record<string, AttachmentMeta[]>>({});
   const [refreshing, setRefreshing] = useState(false);
+  const purgeDays = useSettingsStore((s) => s.purgeDays);
 
-  const loadNotes = useCallback(async () => {
-    if (!db) return;
-    setLoading(true);
+  const trashed = useMemo(() => notes.filter((n) => n.trashed && !n.deleted), [notes]);
+
+  const loadData = useCallback(async () => {
+    const cachedNotes = await loadCachedNotes();
+    const cachedLabels = await loadCachedLabels();
+    setNotes(cachedNotes);
+    setLabels(cachedLabels);
+    const attachmentMap: Record<string, AttachmentMeta[]> = {};
+    cachedNotes.forEach((n) => {
+      if (n.attachments) attachmentMap[n.id] = n.attachments;
+    });
+    setAttachments(attachmentMap);
     try {
-      const repo = new NotesRepo(db);
-      await purgeTrashedNotes(repo, purgeDays);
-      const list = await repo.list({ trashedOnly: true, includeArchived: true });
-      setNotes(list);
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
+      const remoteLabels = await fetchLabels();
+      setLabels(remoteLabels);
+      await saveCachedLabels(remoteLabels);
+    } catch {
+      // ignore
     }
-  }, [db, purgeDays]);
+  }, []);
 
-  useEffect(() => {
-    loadNotes();
-  }, [loadNotes]);
+  const refresh = useCallback(async () => {
+    setRefreshing(true);
+    await purgeOldTrashed(purgeDays).catch(() => undefined);
+    await loadData();
+    setRefreshing(false);
+  }, [loadData, purgeDays]);
 
   useFocusEffect(
     useCallback(() => {
-      loadNotes();
-    }, [loadNotes])
+      refresh();
+    }, [refresh])
   );
 
-  const onRefresh = () => {
-    setRefreshing(true);
-    loadNotes();
+  const updateCache = async (updater: (current: NotePayload[]) => NotePayload[]) => {
+    const current = await loadCachedNotes();
+    const next = updater(current);
+    await saveCachedNotes(next);
+    setNotes(next);
   };
 
-  const restore = async (noteId: string) => {
-    if (!db) return;
-    const repo = new NotesRepo(db);
-    await repo.softDelete(noteId, false);
-    loadNotes();
+  const restore = async (note: NotePayload) => {
+    const updated: NotePayload = { ...note, trashed: false, updatedAt: Date.now() };
+    await pushNotes([updated]);
+    await updateCache((cur) => cur.map((n) => (n.id === note.id ? updated : n)));
   };
 
-  const deleteForever = async (noteId: string) => {
-    if (!db) return;
-    const repo = new NotesRepo(db);
-    await repo.delete(noteId);
-    loadNotes();
+  const deleteForever = async (note: NotePayload) => {
+    const updated: NotePayload = { ...note, trashed: true, deleted: true, updatedAt: Date.now() };
+    await pushNotes([updated]);
+    await updateCache((cur) => cur.filter((n) => n.id !== note.id));
   };
-
-  if (!db || loading) {
-    return (
-      <View style={styles.center}>
-        <ActivityIndicator />
-      </View>
-    );
-  }
 
   return (
-    <View style={styles.container}>
+    <ScrollView
+      contentContainerStyle={styles.container}
+      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} />}>
       <Stack.Screen options={{ title: 'Trash' }} />
-      <ScrollView
-        contentContainerStyle={styles.scroll}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}>
-        {notes.length === 0 ? (
-          <EmptyState title="Trash is empty" description="Restored and deleted notes will appear here." />
-        ) : (
-          notes.map((note) => (
-            <View key={note.id} style={styles.cardRow}>
-              <NoteCard note={note} style={styles.card} />
-              <View style={styles.actions}>
-                <Button mode="outlined" onPress={() => restore(note.id)}>
-                  Restore
-                </Button>
-                <Button mode="text" onPress={() => deleteForever(note.id)}>
-                  Delete
-                </Button>
-              </View>
+      {trashed.length === 0 ? (
+        <Text>No trashed notes.</Text>
+      ) : (
+        trashed.map((note) => (
+          <View key={note.id} style={styles.cardBlock}>
+            <NoteCard
+              note={note}
+              attachments={attachments[note.id]}
+              labels={(note.labels || []).map((id) => labels.find((l) => l.id === id)).filter(Boolean) as Label[]}
+            />
+            <View style={styles.actions}>
+              <Button mode="outlined" onPress={() => restore(note)}>
+                Restore
+              </Button>
+              <Button mode="text" onPress={() => deleteForever(note)}>
+                Delete forever
+              </Button>
             </View>
-          ))
-        )}
-      </ScrollView>
-    </View>
+            <Divider />
+          </View>
+        ))
+      )}
+    </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
-    flex: 1,
-  },
-  scroll: {
     padding: 16,
     gap: 12,
   },
-  cardRow: {
-    gap: 8,
-  },
-  card: {
-    marginVertical: 0,
-  },
   actions: {
     flexDirection: 'row',
+    justifyContent: 'flex-end',
     gap: 8,
+    marginBottom: 8,
   },
-  center: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
+  cardBlock: {
+    gap: 8,
   },
 });

@@ -1,16 +1,15 @@
 import { Stack, router } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
-import { ActivityIndicator, Button, IconButton, Text, TextInput } from 'react-native-paper';
+import { Button, IconButton, Text, TextInput } from 'react-native-paper';
 import { v4 as uuidv4 } from 'uuid';
 
-import { useDatabase } from '@/src/hooks/use-database';
-import { LabelsRepo } from '@/src/repositories/labelsRepo';
+import { createLabel, deleteLabel, fetchLabels, updateLabel } from '@/src/api/labels';
+import { Label } from '@/src/api/types';
+import { loadCachedLabels, saveCachedLabels } from '@/src/cache/labelsCache';
 import { useNotesUiStore } from '@/src/store/notesUiStore';
-import { Label } from '@/src/types/models';
 
 export default function LabelsScreen() {
-  const db = useDatabase();
   const [labels, setLabels] = useState<Label[]>([]);
   const [loading, setLoading] = useState(true);
   const [newLabel, setNewLabel] = useState('');
@@ -19,65 +18,66 @@ export default function LabelsScreen() {
 
   useEffect(() => {
     const load = async () => {
-      if (!db) return;
+      const cached = await loadCachedLabels();
+      if (cached.length) {
+        setLabels(cached);
+        setEdits(
+          cached.reduce<Record<string, string>>((acc, l) => {
+            acc[l.id] = l.name;
+            return acc;
+          }, {})
+        );
+      }
       setLoading(true);
-      const repo = new LabelsRepo(db);
-      const list = await repo.list();
-      setLabels(list);
-      setEdits(
-        list.reduce<Record<string, string>>((acc, label) => {
-          acc[label.id] = label.name;
-          return acc;
-        }, {})
-      );
-      setLoading(false);
+      try {
+        const remote = await fetchLabels();
+        setLabels(remote);
+        setEdits(
+          remote.reduce<Record<string, string>>((acc, l) => {
+            acc[l.id] = l.name;
+            return acc;
+          }, {})
+        );
+        await saveCachedLabels(remote);
+      } finally {
+        setLoading(false);
+      }
     };
     load();
-  }, [db]);
-
-  const refresh = async () => {
-    if (!db) return;
-    const repo = new LabelsRepo(db);
-    const list = await repo.list();
-    setLabels(list);
-    setEdits(
-      list.reduce<Record<string, string>>((acc, label) => {
-        acc[label.id] = label.name;
-        return acc;
-      }, {})
-    );
-  };
+  }, []);
 
   const addLabel = async () => {
-    if (!db) return;
     const name = newLabel.trim();
     if (!name) return;
-    const repo = new LabelsRepo(db);
-    await repo.create({ id: uuidv4(), name });
+    const created = await createLabel(name);
+    const next = [...labels, created];
+    setLabels(next);
+    setEdits((prev) => ({ ...prev, [created.id]: created.name }));
     setNewLabel('');
-    refresh();
+    await saveCachedLabels(next);
   };
 
   const renameLabel = async (id: string) => {
-    if (!db) return;
     const name = edits[id]?.trim();
     if (!name) return;
-    const repo = new LabelsRepo(db);
-    await repo.rename(id, name);
-    refresh();
+    const updated = await updateLabel(id, name);
+    const next = labels.map((l) => (l.id === id ? updated : l));
+    setLabels(next);
+    await saveCachedLabels(next);
   };
 
-  const deleteLabel = async (id: string) => {
-    if (!db) return;
-    const repo = new LabelsRepo(db);
-    await repo.delete(id);
-    refresh();
+  const removeLabel = async (id: string) => {
+    await deleteLabel(id);
+    const next = labels.filter((l) => l.id !== id);
+    setLabels(next);
+    await saveCachedLabels(next);
   };
 
-  if (!db || loading) {
+  if (loading && labels.length === 0) {
     return (
-      <View style={styles.center}>
-        <ActivityIndicator />
+      <View style={styles.container}>
+        <Stack.Screen options={{ title: 'Labels' }} />
+        <Text>Loading...</Text>
       </View>
     );
   }
@@ -94,7 +94,7 @@ export default function LabelsScreen() {
         right={<TextInput.Icon icon="plus" onPress={addLabel} />}
       />
       {labels.length === 0 ? (
-        <Text variant="bodyMedium">No labels yet. Create one above.</Text>
+        <Text>No labels yet.</Text>
       ) : (
         labels.map((label) => (
           <View key={label.id} style={styles.row}>
@@ -105,7 +105,7 @@ export default function LabelsScreen() {
               style={styles.labelInput}
             />
             <IconButton icon="content-save" onPress={() => renameLabel(label.id)} />
-            <IconButton icon="delete" onPress={() => deleteLabel(label.id)} />
+            <IconButton icon="delete" onPress={() => removeLabel(label.id)} />
             <Button
               mode="text"
               onPress={() => {
@@ -137,10 +137,5 @@ const styles = StyleSheet.create({
   labelInput: {
     flex: 1,
     backgroundColor: 'transparent',
-  },
-  center: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
   },
 });

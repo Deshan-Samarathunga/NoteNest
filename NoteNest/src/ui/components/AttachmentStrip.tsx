@@ -3,13 +3,13 @@ import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { Image } from 'expo-image';
 import { IconButton } from 'react-native-paper';
 
-import { Attachment } from '@/src/types/models';
+import { AttachmentMeta } from '@/src/api/types';
 
 type AttachmentStripProps = {
-  attachments: Attachment[];
+  attachments: AttachmentMeta[];
   onAdd?: () => void;
   onRemove?: (id: string) => void;
-  onPressAttachment?: (attachment: Attachment) => void;
+  onPressAttachment?: (attachment: AttachmentMeta) => void;
 };
 
 export function AttachmentStrip({
