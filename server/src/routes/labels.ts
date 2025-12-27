@@ -8,7 +8,8 @@ const storage = new MegaNoteStorage();
 
 labelsRouter.get('/', async (_req, res) => {
   try {
-    const labels = await storage.getLabels();
+    const passphrase = (res.req.headers['x-passphrase'] as string) || undefined;
+    const labels = await storage.getLabels(passphrase);
     res.json({ labels, serverTime: Date.now() });
   } catch (err) {
     // eslint-disable-next-line no-console
@@ -22,7 +23,8 @@ labelsRouter.post('/', async (req, res) => {
     const name = String(req.body?.name || '').trim();
     if (!name) return res.status(400).json({ error: 'invalid_name' });
     const label = { id: uuidv4(), name, updatedAt: Date.now() };
-    await storage.upsertLabel(label);
+    const passphrase = (req.headers['x-passphrase'] as string) || undefined;
+    await storage.upsertLabel(label, passphrase);
     res.json({ label, serverTime: Date.now() });
   } catch (err) {
     console.error('labels/create error', err);
@@ -36,7 +38,8 @@ labelsRouter.put('/:id', async (req, res) => {
     const name = String(req.body?.name || '').trim();
     if (!name) return res.status(400).json({ error: 'invalid_name' });
     const label = { id, name, updatedAt: Date.now() };
-    await storage.upsertLabel(label);
+    const passphrase = (req.headers['x-passphrase'] as string) || undefined;
+    await storage.upsertLabel(label, passphrase);
     res.json({ label, serverTime: Date.now() });
   } catch (err) {
     console.error('labels/update error', err);
@@ -47,7 +50,8 @@ labelsRouter.put('/:id', async (req, res) => {
 labelsRouter.delete('/:id', async (req, res) => {
   try {
     const id = req.params.id;
-    await storage.deleteLabel(id);
+    const passphrase = (req.headers['x-passphrase'] as string) || undefined;
+    await storage.deleteLabel(id, passphrase);
     res.json({ ok: true, serverTime: Date.now() });
   } catch (err) {
     console.error('labels/delete error', err);

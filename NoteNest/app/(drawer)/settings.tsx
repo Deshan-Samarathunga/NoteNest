@@ -9,6 +9,7 @@ import { loadCachedLabels, saveCachedLabels } from '@/src/cache/labelsCache';
 import { loadCachedNotes, saveCachedNotes } from '@/src/cache/notesCache';
 import { pullNotes } from '@/src/api/notes';
 import { fetchLabels } from '@/src/api/labels';
+import { login } from '@/src/api/auth';
 
 export default function SettingsScreen() {
   const theme = useSettingsStore((s) => s.theme);
@@ -22,9 +23,14 @@ export default function SettingsScreen() {
   const setServerUrl = useSettingsStore((s) => s.setServerUrl);
   const sessionPassphrase = useSettingsStore((s) => s.sessionPassphrase);
   const setSessionPassphrase = useSettingsStore((s) => s.setSessionPassphrase);
+  const sessionToken = useSettingsStore((s) => s.sessionToken);
+  const setSessionToken = useSettingsStore((s) => s.setSessionToken);
   const [draftServerUrl, setDraftServerUrl] = useState(serverUrl);
   const [draftPassphrase, setDraftPassphrase] = useState(sessionPassphrase);
   const [syncing, setSyncing] = useState(false);
+  const [loginUser, setLoginUser] = useState('');
+  const [loginPass, setLoginPass] = useState('');
+  const [authLoading, setAuthLoading] = useState(false);
 
   const handleLayoutChange = (layout: 'list' | 'grid') => {
     setDefaultLayout(layout);
@@ -61,6 +67,16 @@ export default function SettingsScreen() {
   const clearCache = async () => {
     await saveCachedNotes([]);
     await saveCachedLabels([]);
+  };
+
+  const doLogin = async () => {
+    setAuthLoading(true);
+    try {
+      const res = await login(loginUser.trim(), loginPass);
+      setSessionToken(res.token);
+    } finally {
+      setAuthLoading(false);
+    }
   };
 
   return (
@@ -162,6 +178,27 @@ export default function SettingsScreen() {
             Clear cache
           </Button>
         </View>
+      </View>
+
+      <View style={styles.section}>
+        <Text variant="titleMedium">Auth (demo)</Text>
+        <TextInput label="Username" mode="outlined" value={loginUser} onChangeText={setLoginUser} />
+        <TextInput
+          label="Password"
+          mode="outlined"
+          value={loginPass}
+          onChangeText={setLoginPass}
+          secureTextEntry
+        />
+        <View style={styles.buttonRow}>
+          <Button mode="contained" onPress={doLogin} loading={authLoading}>
+            Login
+          </Button>
+          <Button mode="text" onPress={() => setSessionToken(null)} disabled={authLoading}>
+            Logout
+          </Button>
+        </View>
+        {sessionToken ? <Text variant="bodySmall">Token saved.</Text> : <Text variant="bodySmall">Not logged in.</Text>}
       </View>
     </ScrollView>
   );

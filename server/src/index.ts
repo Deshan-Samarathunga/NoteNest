@@ -7,6 +7,7 @@ import labelsRouter from './routes/labels';
 import attachmentsRouter from './routes/attachments';
 import authRouter from './routes/auth';
 import notesRouter from './routes/notes';
+import { requireAuth } from './middleware/auth';
 
 const app = express();
 app.use(cors());
@@ -18,10 +19,11 @@ app.get('/health', (_req, res) => {
   res.json({ ok: true, time: Date.now() });
 });
 
+app.use('/auth', authRouter);
+app.use(requireAuth);
 app.use('/sync', syncRouter);
 app.use('/labels', labelsRouter);
 app.use('/attachments', attachmentsRouter);
-app.use('/auth', authRouter);
 app.use('/notes', notesRouter);
 
 app.listen(PORT, () => {

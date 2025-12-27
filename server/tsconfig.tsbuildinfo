@@ -1,1 +1,1 @@
-{"root":["./src/cryptoHelper.ts","./src/index.ts","./src/megaClient.ts","./src/storage.ts","./src/types.ts","./src/routes/attachments.ts","./src/routes/auth.ts","./src/routes/labels.ts","./src/routes/notes.ts","./src/routes/sync.ts"],"version":"5.9.3"}
+{"root":["./src/cryptoHelper.ts","./src/index.ts","./src/megaClient.ts","./src/storage.ts","./src/types.ts","./src/middleware/auth.ts","./src/routes/attachments.ts","./src/routes/auth.ts","./src/routes/labels.ts","./src/routes/notes.ts","./src/routes/sync.ts"],"version":"5.9.3"}

@@ -6,9 +6,11 @@ export function getServerBaseUrl() {
 
 export async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> {
   const base = getServerBaseUrl();
+  const token = useSettingsStore.getState().sessionToken;
   const res = await fetch(`${base}${path}`, {
     headers: {
       'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...(options.headers || {}),
     },
     ...options,
