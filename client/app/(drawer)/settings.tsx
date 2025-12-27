@@ -5,11 +5,8 @@ import { Button, RadioButton, Text, TextInput, ToggleButton } from 'react-native
 
 import { useNotesUiStore } from '@/src/store/notesUiStore';
 import { useSettingsStore } from '@/src/store/settingsStore';
-import { loadCachedLabels, saveCachedLabels } from '@/src/cache/labelsCache';
-import { loadCachedNotes, saveCachedNotes } from '@/src/cache/notesCache';
-import { pullNotes } from '@/src/api/notes';
-import { fetchLabels } from '@/src/api/labels';
 import { login } from '@/src/api/auth';
+import { runSync, clearLocalCache } from '@/src/services/syncService';
 
 export default function SettingsScreen() {
   const theme = useSettingsStore((s) => s.theme);
@@ -55,18 +52,14 @@ export default function SettingsScreen() {
   const syncNow = async () => {
     setSyncing(true);
     try {
-      const result = await pullNotes(0);
-      await saveCachedNotes(result.notes);
-      const labels = result.labels ?? (await fetchLabels());
-      await saveCachedLabels(labels);
+      await runSync();
     } finally {
       setSyncing(false);
     }
   };
 
   const clearCache = async () => {
-    await saveCachedNotes([]);
-    await saveCachedLabels([]);
+    await clearLocalCache();
   };
 
   const doLogin = async () => {

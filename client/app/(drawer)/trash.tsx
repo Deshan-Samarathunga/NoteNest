@@ -3,14 +3,14 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 import { Button, Divider, Text } from 'react-native-paper';
 
-import { pushNotes } from '@/src/api/notes';
 import { AttachmentMeta, Label, NotePayload } from '@/src/api/types';
 import { fetchLabels } from '@/src/api/labels';
-import { loadCachedLabels, saveCachedLabels } from '@/src/cache/labelsCache';
-import { loadCachedNotes, saveCachedNotes } from '@/src/cache/notesCache';
 import { purgeOldTrashed } from '@/src/services/purgeService';
 import { useSettingsStore } from '@/src/store/settingsStore';
 import { NoteCard } from '@/src/ui/components/NoteCard';
+import { getAllNotes, saveNote } from '@/src/db/notesRepo';
+import { replaceLabels, getLabels } from '@/src/db/labelsRepo';
+import { queueAndSave, runSync } from '@/src/services/syncService';
 
 export default function TrashScreen() {
   const [notes, setNotes] = useState<NotePayload[]>([]);
@@ -22,8 +22,8 @@ export default function TrashScreen() {
   const trashed = useMemo(() => notes.filter((n) => n.trashed && !n.deleted), [notes]);
 
   const loadData = useCallback(async () => {
-    const cachedNotes = await loadCachedNotes();
-    const cachedLabels = await loadCachedLabels();
+    const cachedNotes = await getAllNotes();
+    const cachedLabels = await getLabels();
     setNotes(cachedNotes);
     setLabels(cachedLabels);
     const attachmentMap: Record<string, AttachmentMeta[]> = {};
@@ -34,7 +34,7 @@ export default function TrashScreen() {
     try {
       const remoteLabels = await fetchLabels();
       setLabels(remoteLabels);
-      await saveCachedLabels(remoteLabels);
+      await replaceLabels(remoteLabels);
     } catch {
       // ignore
     }
@@ -43,6 +43,7 @@ export default function TrashScreen() {
   const refresh = useCallback(async () => {
     setRefreshing(true);
     await purgeOldTrashed(purgeDays).catch(() => undefined);
+    await runSync().catch(() => undefined);
     await loadData();
     setRefreshing(false);
   }, [loadData, purgeDays]);
@@ -54,21 +55,24 @@ export default function TrashScreen() {
   );
 
   const updateCache = async (updater: (current: NotePayload[]) => NotePayload[]) => {
-    const current = await loadCachedNotes();
+    const current = await getAllNotes();
     const next = updater(current);
-    await saveCachedNotes(next);
+    // replace all notes in DB
+    await Promise.all(next.map((n) => saveNote(n, false)));
     setNotes(next);
   };
 
   const restore = async (note: NotePayload) => {
     const updated: NotePayload = { ...note, trashed: false, updatedAt: Date.now() };
-    await pushNotes([updated]);
+    await queueAndSave(updated);
+    await runSync().catch(() => undefined);
     await updateCache((cur) => cur.map((n) => (n.id === note.id ? updated : n)));
   };
 
   const deleteForever = async (note: NotePayload) => {
     const updated: NotePayload = { ...note, trashed: true, deleted: true, updatedAt: Date.now() };
-    await pushNotes([updated]);
+    await queueAndSave(updated);
+    await runSync().catch(() => undefined);
     await updateCache((cur) => cur.filter((n) => n.id !== note.id));
   };
 

@@ -7,10 +7,12 @@ export function getServerBaseUrl() {
 export async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> {
   const base = getServerBaseUrl();
   const token = useSettingsStore.getState().sessionToken;
+  const passphrase = useSettingsStore.getState().sessionPassphrase;
   const res = await fetch(`${base}${path}`, {
     headers: {
       'Content-Type': 'application/json',
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(passphrase ? { 'x-passphrase': passphrase } : {}),
       ...(options.headers || {}),
     },
     ...options,

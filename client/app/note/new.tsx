@@ -15,16 +15,15 @@ import {
 import { v4 as uuidv4 } from 'uuid';
 
 import { uploadAttachmentFromUri } from '@/src/api/attachments';
-import { pushNotes } from '@/src/api/notes';
 import { AttachmentMeta, ChecklistItem, Label, NotePayload } from '@/src/api/types';
 import { fetchLabels } from '@/src/api/labels';
-import { loadCachedLabels, saveCachedLabels } from '@/src/cache/labelsCache';
-import { loadCachedNotes, saveCachedNotes } from '@/src/cache/notesCache';
 import { ensureNotificationPermissions, scheduleReminder } from '@/src/services/remindersService';
 import { ChecklistEditor } from '@/src/ui/components/ChecklistEditor';
 import { ColorPicker } from '@/src/ui/components/ColorPicker';
 import { AttachmentStrip } from '@/src/ui/components/AttachmentStrip';
 import { LabelPicker } from '@/src/ui/components/LabelPicker';
+import { getLabels, replaceLabels } from '@/src/db/labelsRepo';
+import { queueAndSave, runSync } from '@/src/services/syncService';
 
 const DEFAULT_COLOR = 0xffffff;
 
@@ -46,13 +45,13 @@ export default function NewNoteScreen() {
 
   useEffect(() => {
     const loadLabels = async () => {
-      const cached = await loadCachedLabels();
-      if (cached.length) setLabels(cached);
       try {
         const remote = await fetchLabels();
         setLabels(remote);
-        await saveCachedLabels(remote);
+        await replaceLabels(remote);
       } catch {
+        const cached = await getLabels();
+        if (cached.length) setLabels(cached);
         // best effort
       }
     };
@@ -114,10 +113,8 @@ export default function NewNoteScreen() {
     };
 
     try {
-      await pushNotes([note]);
-      const cached = await loadCachedNotes();
-      const nextCache = [note, ...cached.filter((n) => n.id !== note.id)];
-      await saveCachedNotes(nextCache);
+      await queueAndSave(note);
+      await runSync();
       router.replace(`/note/${note.id}`);
     } catch (err) {
       Alert.alert('Save failed', 'Could not save the note. Please try again.');

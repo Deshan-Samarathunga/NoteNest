@@ -13,6 +13,7 @@ import { useColorScheme } from '@/hooks/use-color-scheme';
 import { getAppTheme } from '@/src/ui/theme';
 import { useSettingsStore } from '@/src/store/settingsStore';
 import { purgeOldTrashed } from '@/src/services/purgeService';
+import { runMigrations } from '@/src/db/database';
 
 export const unstable_settings = {
   anchor: '(drawer)',
@@ -46,6 +47,7 @@ export default function RootLayout() {
   }, [router]);
 
   useEffect(() => {
+    runMigrations().catch((err) => console.warn('db migration failed', err));
     purgeOldTrashed(purgeDays).catch((err) => {
       // eslint-disable-next-line no-console
       console.warn('purge failed', err);

@@ -14,17 +14,17 @@ import {
 } from 'react-native-paper';
 import * as ImagePicker from 'expo-image-picker';
 
-import { pushNotes } from '@/src/api/notes';
 import { uploadAttachmentFromUri } from '@/src/api/attachments';
 import { AttachmentMeta, ChecklistItem, Label, NotePayload } from '@/src/api/types';
-import { loadCachedNotes, saveCachedNotes } from '@/src/cache/notesCache';
 import { fetchLabels } from '@/src/api/labels';
-import { loadCachedLabels, saveCachedLabels } from '@/src/cache/labelsCache';
 import { cancelReminder, ensureNotificationPermissions, scheduleReminder } from '@/src/services/remindersService';
 import { ChecklistEditor } from '@/src/ui/components/ChecklistEditor';
 import { ColorPicker } from '@/src/ui/components/ColorPicker';
 import { AttachmentStrip } from '@/src/ui/components/AttachmentStrip';
 import { LabelPicker } from '@/src/ui/components/LabelPicker';
+import { getLabels, replaceLabels } from '@/src/db/labelsRepo';
+import { getNote as loadNote, saveNote } from '@/src/db/notesRepo';
+import { queueAndSave, runSync } from '@/src/services/syncService';
 
 export default function NoteDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -52,8 +52,7 @@ export default function NoteDetailScreen() {
     const load = async () => {
       if (!id) return;
       setLoading(true);
-      const cached = await loadCachedNotes();
-      const found = cached.find((n) => n.id === id) || null;
+      const found = (await loadNote(id)) || null;
       setNote(found);
       if (found) {
         setTitle(found.title ?? '');
@@ -86,18 +85,16 @@ export default function NoteDetailScreen() {
   );
 
   useEffect(() => {
-    const loadLabels = async () => {
-      const cached = await loadCachedLabels();
-      if (cached.length) setLabels(cached);
+    (async () => {
       try {
         const remote = await fetchLabels();
         setLabels(remote);
-        await saveCachedLabels(remote);
+        await replaceLabels(remote);
       } catch {
-        // best effort
+        const cached = await getLabels();
+        setLabels(cached);
       }
-    };
-    loadLabels();
+    })();
   }, []);
 
   const onSave = async () => {
@@ -148,13 +145,8 @@ export default function NoteDetailScreen() {
         updatedAt: Date.now(),
       };
 
-      await pushNotes([updated]);
-      // update cache
-      const cached = await loadCachedNotes();
-      const nextCache = cached.some((n) => n.id === updated.id)
-        ? cached.map((n) => (n.id === updated.id ? updated : n))
-        : [updated, ...cached];
-      await saveCachedNotes(nextCache);
+      await queueAndSave(updated);
+      await runSync();
       router.back();
     } finally {
       setSaving(false);

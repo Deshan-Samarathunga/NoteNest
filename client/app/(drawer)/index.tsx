@@ -3,11 +3,11 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 import { ActivityIndicator, Chip, FAB, Searchbar, Text, ToggleButton } from 'react-native-paper';
 
-import { pullNotes } from '@/src/api/notes';
 import { AttachmentMeta, Label, NotePayload } from '@/src/api/types';
 import { fetchLabels } from '@/src/api/labels';
-import { loadCachedLabels, saveCachedLabels } from '@/src/cache/labelsCache';
-import { loadCachedNotes, saveCachedNotes } from '@/src/cache/notesCache';
+import { getAllNotes } from '@/src/db/notesRepo';
+import { getLabels, replaceLabels } from '@/src/db/labelsRepo';
+import { runSync } from '@/src/services/syncService';
 import { useSettingsStore } from '@/src/store/settingsStore';
 import { useNotesUiStore } from '@/src/store/notesUiStore';
 import { EmptyState } from '@/src/ui/components/EmptyState';
@@ -47,37 +47,23 @@ export default function HomeScreen() {
   );
 
   const loadNotes = useCallback(async () => {
-    const cached = await loadCachedNotes();
-    const cachedLabels = await loadCachedLabels();
-    if (cached.length) {
-      setNotes(cached);
-      const attachmentMap: Record<string, AttachmentMeta[]> = {};
-      cached.forEach((n) => {
-        if (n.attachments) attachmentMap[n.id] = n.attachments;
-      });
-      setAttachments(attachmentMap);
-    }
-    if (cachedLabels.length) {
-      setLabels(cachedLabels);
-    }
     setLoading(true);
     try {
-      const result = await pullNotes(0);
-      const fetched = result.notes;
-      const fetchedLabels = result.labels ?? (await fetchLabels());
-      setNotes(fetched);
-      setLabels(fetchedLabels);
-      const attachmentMap: Record<string, AttachmentMeta[]> = {};
-      fetched.forEach((n) => {
-        if (n.attachments) attachmentMap[n.id] = n.attachments;
-      });
-      setAttachments(attachmentMap);
-      await saveCachedNotes(fetched);
-      await saveCachedLabels(fetchedLabels);
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
+      await runSync();
+    } catch {
+      // ignore sync failures; show cached data
     }
+    const localNotes = await getAllNotes();
+    const localLabels = await getLabels();
+    setNotes(localNotes);
+    setLabels(localLabels);
+    const attachmentMap: Record<string, AttachmentMeta[]> = {};
+    localNotes.forEach((n) => {
+      if (n.attachments) attachmentMap[n.id] = n.attachments;
+    });
+    setAttachments(attachmentMap);
+    setLoading(false);
+    setRefreshing(false);
   }, []);
 
   useEffect(() => {

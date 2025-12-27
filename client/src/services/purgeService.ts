@@ -1,13 +1,13 @@
 import dayjs from 'dayjs';
 
-import { pushNotes } from '@/src/api/notes';
 import { NotePayload } from '@/src/api/types';
-import { loadCachedNotes, saveCachedNotes } from '@/src/cache/notesCache';
+import { getAllNotes, saveNote } from '@/src/db/notesRepo';
+import { queueAndSave, runSync } from '@/src/services/syncService';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 export async function purgeOldTrashed(purgeDays: number) {
-  const notes = await loadCachedNotes();
+  const notes = await getAllNotes();
   const cutoff = dayjs().subtract(purgeDays, 'day').valueOf();
   const toPurge = notes.filter((n) => n.trashed && !n.deleted && (n.updatedAt ?? 0) < cutoff);
   if (!toPurge.length) return { purged: 0 };
@@ -20,8 +20,10 @@ export async function purgeOldTrashed(purgeDays: number) {
     updatedAt: now,
   }));
 
-  await pushNotes(payloads);
-  const remaining = notes.filter((n) => !toPurge.some((t) => t.id === n.id));
-  await saveCachedNotes(remaining);
+  for (const p of payloads) {
+    await saveNote(p, true);
+    await queueAndSave(p);
+  }
+  await runSync().catch(() => undefined);
   return { purged: toPurge.length };
 }

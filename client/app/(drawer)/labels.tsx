@@ -6,7 +6,7 @@ import { v4 as uuidv4 } from 'uuid';
 
 import { createLabel, deleteLabel, fetchLabels, updateLabel } from '@/src/api/labels';
 import { Label } from '@/src/api/types';
-import { loadCachedLabels, saveCachedLabels } from '@/src/cache/labelsCache';
+import { getLabels, replaceLabels } from '@/src/db/labelsRepo';
 import { useNotesUiStore } from '@/src/store/notesUiStore';
 
 export default function LabelsScreen() {
@@ -18,16 +18,6 @@ export default function LabelsScreen() {
 
   useEffect(() => {
     const load = async () => {
-      const cached = await loadCachedLabels();
-      if (cached.length) {
-        setLabels(cached);
-        setEdits(
-          cached.reduce<Record<string, string>>((acc, l) => {
-            acc[l.id] = l.name;
-            return acc;
-          }, {})
-        );
-      }
       setLoading(true);
       try {
         const remote = await fetchLabels();
@@ -38,7 +28,7 @@ export default function LabelsScreen() {
             return acc;
           }, {})
         );
-        await saveCachedLabels(remote);
+        await replaceLabels(remote);
       } finally {
         setLoading(false);
       }
@@ -54,7 +44,7 @@ export default function LabelsScreen() {
     setLabels(next);
     setEdits((prev) => ({ ...prev, [created.id]: created.name }));
     setNewLabel('');
-    await saveCachedLabels(next);
+    await replaceLabels(next);
   };
 
   const renameLabel = async (id: string) => {
@@ -63,14 +53,14 @@ export default function LabelsScreen() {
     const updated = await updateLabel(id, name);
     const next = labels.map((l) => (l.id === id ? updated : l));
     setLabels(next);
-    await saveCachedLabels(next);
+    await replaceLabels(next);
   };
 
   const removeLabel = async (id: string) => {
     await deleteLabel(id);
     const next = labels.filter((l) => l.id !== id);
     setLabels(next);
-    await saveCachedLabels(next);
+    await replaceLabels(next);
   };
 
   if (loading && labels.length === 0) {
