@@ -1,5 +1,7 @@
 import { Platform } from 'react-native';
 
+import { useSettingsStore } from '@/src/store/settingsStore';
+
 import { getServerBaseUrl } from './http';
 import { AttachmentMeta } from './types';
 
@@ -30,8 +32,14 @@ export async function uploadAttachmentFromUri(uri: string, mimeType?: string | n
   }
 
   const base = getServerBaseUrl();
+  const token = useSettingsStore.getState().sessionToken;
+  const passphrase = useSettingsStore.getState().sessionPassphrase;
   const res = await fetch(`${base}/attachments`, {
     method: 'POST',
+    headers: {
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(passphrase ? { 'x-passphrase': passphrase } : {}),
+    },
     body: form,
   });
   if (!res.ok) {

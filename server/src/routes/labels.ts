@@ -6,9 +6,9 @@ import { MegaNoteStorage } from '../storage';
 const labelsRouter = Router();
 const storage = new MegaNoteStorage();
 
-labelsRouter.get('/', async (_req, res) => {
+labelsRouter.get('/', async (req, res) => {
   try {
-    const passphrase = (res.req.headers['x-passphrase'] as string) || undefined;
+    const passphrase = (req.headers['x-passphrase'] as string) || undefined;
     const labels = await storage.getLabels(passphrase);
     res.json({ labels, serverTime: Date.now() });
   } catch (err) {
