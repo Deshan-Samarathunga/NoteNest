@@ -25,6 +25,9 @@ export function ColorPicker({ selectedColor, onSelect }: ColorPickerProps) {
               { backgroundColor: colorIntToHex(color), borderColor: isSelected ? '#000' : '#ccc' },
               isSelected && styles.selected,
             ]}
+            accessibilityRole="button"
+            accessibilityLabel={`Select note color ${colorIntToHex(color)}`}
+            accessibilityState={{ selected: isSelected }}
             onPress={() => onSelect(color)}
           />
         );

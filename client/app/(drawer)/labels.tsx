@@ -1,8 +1,7 @@
 import { Stack, router } from 'expo-router';
 import React, { useEffect, useState } from 'react';
-import { ScrollView, StyleSheet, View } from 'react-native';
+import { Alert, ScrollView, StyleSheet, View } from 'react-native';
 import { Button, IconButton, Text, TextInput } from 'react-native-paper';
-import { v4 as uuidv4 } from 'uuid';
 
 import { createLabel, deleteLabel, fetchLabels, updateLabel } from '@/src/api/labels';
 import { Label } from '@/src/api/types';
@@ -15,20 +14,26 @@ export default function LabelsScreen() {
   const [newLabel, setNewLabel] = useState('');
   const [edits, setEdits] = useState<Record<string, string>>({});
   const setSelectedLabelId = useNotesUiStore((state) => state.setSelectedLabelId);
+  const setLocalLabels = (next: Label[]) => {
+    setLabels(next);
+    setEdits(
+      next.reduce<Record<string, string>>((acc, label) => {
+        acc[label.id] = label.name;
+        return acc;
+      }, {})
+    );
+  };
 
   useEffect(() => {
     const load = async () => {
       setLoading(true);
       try {
         const remote = await fetchLabels();
-        setLabels(remote);
-        setEdits(
-          remote.reduce<Record<string, string>>((acc, l) => {
-            acc[l.id] = l.name;
-            return acc;
-          }, {})
-        );
+        setLocalLabels(remote);
         await replaceLabels(remote);
+      } catch {
+        const cached = await getLabels();
+        setLocalLabels(cached);
       } finally {
         setLoading(false);
       }
@@ -39,28 +44,42 @@ export default function LabelsScreen() {
   const addLabel = async () => {
     const name = newLabel.trim();
     if (!name) return;
-    const created = await createLabel(name);
-    const next = [...labels, created];
-    setLabels(next);
-    setEdits((prev) => ({ ...prev, [created.id]: created.name }));
-    setNewLabel('');
-    await replaceLabels(next);
+    try {
+      const created = await createLabel(name);
+      const next = [...labels, created];
+      setLocalLabels(next);
+      setNewLabel('');
+      await replaceLabels(next);
+    } catch (err) {
+      Alert.alert('Create failed', 'Could not create the label. Please try again.');
+      console.error(err);
+    }
   };
 
   const renameLabel = async (id: string) => {
     const name = edits[id]?.trim();
     if (!name) return;
-    const updated = await updateLabel(id, name);
-    const next = labels.map((l) => (l.id === id ? updated : l));
-    setLabels(next);
-    await replaceLabels(next);
+    try {
+      const updated = await updateLabel(id, name);
+      const next = labels.map((l) => (l.id === id ? updated : l));
+      setLocalLabels(next);
+      await replaceLabels(next);
+    } catch (err) {
+      Alert.alert('Rename failed', 'Could not rename the label. Please try again.');
+      console.error(err);
+    }
   };
 
   const removeLabel = async (id: string) => {
-    await deleteLabel(id);
-    const next = labels.filter((l) => l.id !== id);
-    setLabels(next);
-    await replaceLabels(next);
+    try {
+      await deleteLabel(id);
+      const next = labels.filter((l) => l.id !== id);
+      setLocalLabels(next);
+      await replaceLabels(next);
+    } catch (err) {
+      Alert.alert('Delete failed', 'Could not delete the label. Please try again.');
+      console.error(err);
+    }
   };
 
   if (loading && labels.length === 0) {

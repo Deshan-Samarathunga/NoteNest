@@ -45,7 +45,7 @@ export async function saveNote(note: NotePayload, markDirty = true) {
 export async function deleteNote(id: string, hard = false) {
   const rows = await databaseAdapter.getAllNotes();
   const remaining = rows.filter((r) => r.id !== id);
-  await databaseAdapter.saveNotes(remaining);
+  await databaseAdapter.replaceNotes(remaining);
   if (!hard) {
     const now = Date.now();
     await databaseAdapter.addMutation({

@@ -7,10 +7,10 @@ import {
   Button,
   Dialog,
   Portal,
+  SegmentedButtons,
   Switch,
   Text,
   TextInput,
-  ToggleButton,
 } from 'react-native-paper';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -152,7 +152,7 @@ export default function NewNoteScreen() {
   return (
     <ScrollView contentContainerStyle={styles.container}>
       <Stack.Screen options={{ title: 'New note' }} />
-      <ToggleButton.Row
+      <SegmentedButtons
         value={noteType}
         onValueChange={(value) => {
           if (!value) return;
@@ -172,14 +172,12 @@ export default function NewNoteScreen() {
           }
           setNoteType(next);
         }}
-        style={styles.toggleRow}>
-        <ToggleButton icon="note-outline" value="TEXT">
-          Text
-        </ToggleButton>
-        <ToggleButton icon="check-outline" value="CHECKLIST">
-          Checklist
-        </ToggleButton>
-      </ToggleButton.Row>
+        buttons={[
+          { value: 'TEXT', label: 'Text', icon: 'note-outline' },
+          { value: 'CHECKLIST', label: 'Checklist', icon: 'check-outline' },
+        ]}
+        style={styles.toggleRow}
+      />
       <TextInput
         label="Title"
         value={title}

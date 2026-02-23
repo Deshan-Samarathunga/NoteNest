@@ -28,7 +28,10 @@ export async function scheduleReminder(request: ReminderRequest): Promise<string
       body: body || 'Open note',
       data: { noteId },
     },
-    trigger: triggerDate,
+    trigger: {
+      type: Notifications.SchedulableTriggerInputTypes.DATE,
+      date: triggerDate,
+    },
   });
   return id;
 }

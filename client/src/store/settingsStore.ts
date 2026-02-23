@@ -2,6 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
 
+import { getDefaultServerUrl } from '@/src/config/serverUrl';
 import { LayoutMode, ThemePreference } from '@/src/types/models';
 
 type SettingsState = {
@@ -25,7 +26,7 @@ export const useSettingsStore = create<SettingsState>()(
       theme: 'system',
       defaultLayout: 'grid',
       purgeDays: 7,
-      serverUrl: 'http://localhost:4000',
+      serverUrl: getDefaultServerUrl(),
       sessionToken: null,
       sessionPassphrase: '',
       setTheme: (theme) => set({ theme }),

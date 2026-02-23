@@ -1,5 +1,5 @@
 import { useFocusEffect, Stack } from 'expo-router';
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import { RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 import { Button, Divider, Text } from 'react-native-paper';
 
@@ -8,7 +8,7 @@ import { fetchLabels } from '@/src/api/labels';
 import { purgeOldTrashed } from '@/src/services/purgeService';
 import { useSettingsStore } from '@/src/store/settingsStore';
 import { NoteCard } from '@/src/ui/components/NoteCard';
-import { getAllNotes, saveNote } from '@/src/db/notesRepo';
+import { getAllNotes, replaceAllNotes } from '@/src/db/notesRepo';
 import { replaceLabels, getLabels } from '@/src/db/labelsRepo';
 import { queueAndSave, runSync } from '@/src/services/syncService';
 
@@ -57,8 +57,7 @@ export default function TrashScreen() {
   const updateCache = async (updater: (current: NotePayload[]) => NotePayload[]) => {
     const current = await getAllNotes();
     const next = updater(current);
-    // replace all notes in DB
-    await Promise.all(next.map((n) => saveNote(n, false)));
+    await replaceAllNotes(next);
     setNotes(next);
   };
 

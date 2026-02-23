@@ -2,6 +2,7 @@ import { Router } from 'express';
 import multer from 'multer';
 import { v4 as uuidv4 } from 'uuid';
 
+import { toHttpError } from '../errors';
 import { MegaNoteStorage } from '../storage';
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 8 * 1024 * 1024 } });
@@ -36,7 +37,8 @@ attachmentsRouter.post('/', upload.single('file'), async (req, res) => {
   } catch (err) {
     // eslint-disable-next-line no-console
     console.error('attachments upload error', err);
-    res.status(500).json({ error: 'upload_failed' });
+    const httpErr = toHttpError(err, 'upload_failed');
+    res.status(httpErr.status).json({ error: httpErr.error });
   }
 });
 
@@ -49,7 +51,8 @@ attachmentsRouter.get('/:id', async (req, res) => {
     res.send(result.buffer);
   } catch (err) {
     console.error('attachments download error', err);
-    res.status(500).json({ error: 'download_failed' });
+    const httpErr = toHttpError(err, 'download_failed');
+    res.status(httpErr.status).json({ error: httpErr.error });
   }
 });
 

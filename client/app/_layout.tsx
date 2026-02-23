@@ -1,13 +1,11 @@
 import { ThemeProvider } from '@react-navigation/native';
-import { Stack } from 'expo-router';
+import { Stack, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { PaperProvider } from 'react-native-paper';
 import 'react-native-reanimated';
 import * as Notifications from 'expo-notifications';
 import { useEffect } from 'react';
-import { useRouter } from 'expo-router';
-import { Platform } from 'react-native';
 
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { getAppTheme } from '@/src/ui/theme';
@@ -31,6 +29,8 @@ export default function RootLayout() {
     Notifications.setNotificationHandler({
       handleNotification: async () => ({
         shouldShowAlert: true,
+        shouldShowBanner: true,
+        shouldShowList: true,
         shouldPlaySound: false,
         shouldSetBadge: false,
       }),
@@ -49,7 +49,6 @@ export default function RootLayout() {
   useEffect(() => {
     runMigrations().catch((err) => console.warn('db migration failed', err));
     purgeOldTrashed(purgeDays).catch((err) => {
-      // eslint-disable-next-line no-console
       console.warn('purge failed', err);
     });
   }, [purgeDays]);

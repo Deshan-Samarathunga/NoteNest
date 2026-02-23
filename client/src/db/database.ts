@@ -5,8 +5,6 @@ import * as SQLite from 'expo-sqlite';
 const DB_NAME = 'notenest.db';
 const isWeb = Platform.OS === 'web';
 
-type SQLResultSetRowList = any;
-
 export type NoteRecord = {
   id: string;
   payload: string;
@@ -30,8 +28,7 @@ let db: SQLite.SQLiteDatabase | null = null;
 function getDb(): SQLite.SQLiteDatabase | null {
   if (isWeb) return null;
   if (!db) {
-    // @ts-ignore newer API has openDatabaseSync, fallback to openDatabase
-    db = SQLite.openDatabaseSync ? SQLite.openDatabaseSync(DB_NAME) : SQLite.openDatabase(DB_NAME);
+    db = SQLite.openDatabaseSync(DB_NAME);
   }
   return db;
 }

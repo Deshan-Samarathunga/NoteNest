@@ -1,6 +1,6 @@
 import { Platform } from 'react-native';
 
-import { getServerBaseUrl } from './http';
+import { getServerBaseUrl, getSessionHeaders } from './http';
 import { AttachmentMeta } from './types';
 
 function extensionFromMime(mime?: string | null) {
@@ -21,17 +21,20 @@ export async function uploadAttachmentFromUri(uri: string, mimeType?: string | n
     const blob = await res.blob();
     form.append('file', blob, name);
   } else {
-    form.append('file', {
-      // @ts-expect-error React Native FormData file shape
-      uri,
-      name,
-      type: mimeType || 'application/octet-stream',
-    });
+    form.append(
+      'file',
+      {
+        uri,
+        name,
+        type: mimeType || 'application/octet-stream',
+      } as any
+    );
   }
 
   const base = getServerBaseUrl();
   const res = await fetch(`${base}/attachments`, {
     method: 'POST',
+    headers: getSessionHeaders(),
     body: form,
   });
   if (!res.ok) {

@@ -5,6 +5,7 @@ import { maybeDecrypt, maybeEncrypt } from './cryptoHelper';
 import { IndexEntry, IndexFile, Label, NotePayload } from './types';
 
 type MegaFile = any;
+type VersionExtractor<T> = (value: T) => number | undefined;
 
 const INDEX_FILE = 'index.json';
 const NOTES_FOLDER = 'notes';
@@ -21,16 +22,71 @@ function extensionFromMime(mime?: string | null) {
   return '.bin';
 }
 
-async function readJsonFile<T>(folder: MegaStorage['root'] | MegaFile, name: string): Promise<T | null> {
-  const existing = (folder as any)?.children?.find((c: any) => c.name === name) ?? null;
-  if (!existing) return null;
-  const buf = await existing.downloadBuffer();
-  return JSON.parse(buf.toString('utf-8')) as T;
+function getFileTimestamp(file: MegaFile): number {
+  const ts = Number(file?.timestamp ?? file?.createdAt ?? 0);
+  return Number.isFinite(ts) ? ts : 0;
+}
+
+function toVersion(value: number | undefined, fallback: number): number {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  return fallback;
+}
+
+function findFilesByName(folder: MegaStorage['root'] | MegaFile, name: string): MegaFile[] {
+  return ((folder as any)?.children ?? []).filter((c: any) => c?.name === name);
+}
+
+async function deleteFile(file: MegaFile) {
+  if (!file || typeof file.delete !== 'function') return;
+  try {
+    await file.delete(true);
+  } catch {
+    // best-effort cleanup only
+  }
+}
+
+async function pruneNamedFiles(folder: MegaStorage['root'] | MegaFile, name: string, keepNodeId?: string) {
+  if (!keepNodeId) return;
+  const matches = findFilesByName(folder, name);
+  const stale = matches.filter((f) => f?.nodeId !== keepNodeId);
+  await Promise.all(stale.map((f) => deleteFile(f)));
+}
+
+async function readJsonFile<T>(
+  folder: MegaStorage['root'] | MegaFile,
+  name: string,
+  getVersion?: VersionExtractor<T>
+): Promise<T | null> {
+  const matches = findFilesByName(folder, name);
+  if (!matches.length) return null;
+
+  let selected: { file: MegaFile; value: T; version: number } | null = null;
+  for (const file of matches) {
+    try {
+      const buf = await file.downloadBuffer();
+      const value = JSON.parse(buf.toString('utf-8')) as T;
+      const version = toVersion(getVersion?.(value), getFileTimestamp(file));
+      if (!selected || version > selected.version) {
+        selected = { file, value, version };
+      }
+    } catch {
+      // ignore malformed duplicates and keep searching
+    }
+  }
+
+  if (!selected) return null;
+  if (matches.length > 1) {
+    const stale = matches.filter((f) => f?.nodeId !== selected?.file?.nodeId);
+    await Promise.all(stale.map((f) => deleteFile(f)));
+  }
+  return selected.value;
 }
 
 async function writeJsonFile(folder: MegaFile, name: string, data: unknown) {
   const json = Buffer.from(JSON.stringify(data, null, 2));
-  await folder.upload({ name, allowUploadBuffer: true, target: folder }, json);
+  const upload = folder.upload({ name, allowUploadBuffer: true, target: folder }, json);
+  const created = await upload.complete;
+  await pruneNamedFiles(folder, name, created?.nodeId);
 }
 
 function unwrapMaybeEncrypted<T>(payload: any, passphrase?: string): T {
@@ -69,7 +125,14 @@ export class MegaNoteStorage {
   async getIndex(passphrase?: string): Promise<IndexFile> {
     await this.init();
     if (!this.appFolder) throw new Error('MEGA app folder unavailable');
-    const existingRaw = await readJsonFile<IndexFile | any>(this.appFolder, INDEX_FILE);
+    const existingRaw = await readJsonFile<IndexFile | any>(
+      this.appFolder,
+      INDEX_FILE,
+      (payload: any) =>
+        typeof payload?.updatedAt === 'number' && Number.isFinite(payload.updatedAt)
+          ? payload.updatedAt
+          : undefined
+    );
     if (existingRaw) return unwrapMaybeEncrypted<IndexFile>(existingRaw, passphrase);
     const empty: IndexFile = { updatedAt: 0, notes: [] };
     await writeJsonFile(this.appFolder, INDEX_FILE, wrapMaybeEncrypted(empty, passphrase));
@@ -89,7 +152,19 @@ export class MegaNoteStorage {
     await this.init();
     if (this.labelsCache) return this.labelsCache;
     if (!this.appFolder) throw new Error('MEGA app folder unavailable');
-    const labelsRaw = (await readJsonFile<Label[] | any>(this.appFolder, LABELS_FILE)) ?? [];
+    const labelsRaw =
+      (await readJsonFile<Label[] | any>(this.appFolder, LABELS_FILE, (payload: any) => {
+        if (Array.isArray(payload)) {
+          return payload.reduce(
+            (max, label) => Math.max(max, Number(label?.updatedAt ?? 0)),
+            0
+          );
+        }
+        if (typeof payload?.updatedAt === 'number' && Number.isFinite(payload.updatedAt)) {
+          return payload.updatedAt;
+        }
+        return undefined;
+      })) ?? [];
     const labels = unwrapMaybeEncrypted<Label[]>(labelsRaw, passphrase) ?? [];
     this.labelsCache = labels;
     return labels;
@@ -124,11 +199,23 @@ export class MegaNoteStorage {
     await this.init();
     if (!this.notesFolder) throw new Error('MEGA notes folder unavailable');
     const name = `NOTE_${id}.json`;
-    const existing = this.notesFolder.children.find((c: any) => c.name === name);
-    if (!existing) return null;
-    const buf = await (existing as any).downloadBuffer();
-    const raw = JSON.parse(buf.toString('utf-8')) as any;
+    const raw = await readJsonFile<NotePayload | any>(
+      this.notesFolder,
+      name,
+      (payload: any) =>
+        typeof payload?.updatedAt === 'number' && Number.isFinite(payload.updatedAt)
+          ? payload.updatedAt
+          : undefined
+    );
+    if (!raw) return null;
     return unwrapMaybeEncrypted<NotePayload>(raw, passphrase);
+  }
+
+  async readActiveNote(id: string, passphrase?: string): Promise<NotePayload | null> {
+    const index = await this.getIndex(passphrase);
+    const entry = this.findIndexEntry(index, id);
+    if (entry?.deleted) return null;
+    return this.readNote(id, passphrase);
   }
 
   async writeNote(note: NotePayload, passphrase?: string): Promise<void> {
@@ -136,20 +223,24 @@ export class MegaNoteStorage {
     if (!this.notesFolder) throw new Error('MEGA notes folder unavailable');
     const name = `NOTE_${note.id}.json`;
     const json = Buffer.from(JSON.stringify(wrapMaybeEncrypted(note, passphrase), null, 2));
-    await (this.notesFolder as any).upload(
+    const upload = (this.notesFolder as any).upload(
       { name, allowUploadBuffer: true, target: this.notesFolder },
       json
     );
+    const created = await upload.complete;
+    await pruneNamedFiles(this.notesFolder, name, created?.nodeId);
   }
 
   async uploadAttachment(id: string, buffer: Buffer, mimeType?: string | null) {
     await this.init();
     if (!this.attachmentsFolder) throw new Error('MEGA attachments folder unavailable');
     const name = `ATT_${id}${extensionFromMime(mimeType)}`;
-    await (this.attachmentsFolder as any).upload(
+    const upload = (this.attachmentsFolder as any).upload(
       { name, allowUploadBuffer: true, target: this.attachmentsFolder },
       buffer
     );
+    const created = await upload.complete;
+    await pruneNamedFiles(this.attachmentsFolder, name, created?.nodeId);
   }
 
   private async findAttachmentFile(id: string): Promise<MegaFile | null> {

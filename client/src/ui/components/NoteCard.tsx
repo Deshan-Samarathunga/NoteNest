@@ -1,13 +1,14 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { StyleProp, StyleSheet, View, ViewStyle } from 'react-native';
 import { Image } from 'expo-image';
 import { Card, Chip, Text } from 'react-native-paper';
 
 import { AttachmentMeta, Label, NotePayload } from '@/src/api/types';
+import { useSettingsStore } from '@/src/store/settingsStore';
 
 type NoteCardProps = {
   note: NotePayload;
-  labels?: Array<Pick<Label, 'id' | 'name'>>;
+  labels?: Pick<Label, 'id' | 'name'>[];
   attachments?: AttachmentMeta[];
   onPress?: () => void;
   onLongPress?: () => void;
@@ -27,6 +28,16 @@ export function NoteCard({
 }: NoteCardProps) {
   const hasBody = Boolean(note.body?.trim());
   const previewAttachments = attachments.slice(0, 3);
+  const sessionToken = useSettingsStore((s) => s.sessionToken);
+  const sessionPassphrase = useSettingsStore((s) => s.sessionPassphrase);
+  const imageHeaders = useMemo(
+    () => ({
+      ...(sessionToken ? { Authorization: `Bearer ${sessionToken}` } : {}),
+      ...(sessionPassphrase ? { 'x-passphrase': sessionPassphrase } : {}),
+    }),
+    [sessionPassphrase, sessionToken]
+  );
+  const hasHeaders = Boolean(imageHeaders.Authorization || imageHeaders['x-passphrase']);
 
   return (
     <Card
@@ -45,7 +56,11 @@ export function NoteCard({
         <Card.Content>
           <View style={styles.attachmentsRow}>
             {previewAttachments.map((attachment) => (
-              <Image key={attachment.id} source={{ uri: attachment.uri }} style={styles.attachment} />
+              <Image
+                key={attachment.id}
+                source={hasHeaders ? { uri: attachment.uri, headers: imageHeaders } : { uri: attachment.uri }}
+                style={styles.attachment}
+              />
             ))}
           </View>
         </Card.Content>

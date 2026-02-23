@@ -1,12 +1,13 @@
 import React, { useState } from 'react';
-import { ScrollView, StyleSheet, View } from 'react-native';
+import { Alert, ScrollView, StyleSheet, View } from 'react-native';
 import { Stack } from 'expo-router';
-import { Button, RadioButton, Text, TextInput, ToggleButton } from 'react-native-paper';
+import { Button, RadioButton, SegmentedButtons, Text, TextInput } from 'react-native-paper';
 
 import { useNotesUiStore } from '@/src/store/notesUiStore';
 import { useSettingsStore } from '@/src/store/settingsStore';
 import { login } from '@/src/api/auth';
 import { runSync, clearLocalCache } from '@/src/services/syncService';
+import { getDefaultServerUrl } from '@/src/config/serverUrl';
 
 export default function SettingsScreen() {
   const theme = useSettingsStore((s) => s.theme);
@@ -41,8 +42,9 @@ export default function SettingsScreen() {
   };
 
   const resetServerUrl = () => {
-    setDraftServerUrl('http://localhost:4000');
-    setServerUrl('http://localhost:4000');
+    const defaultUrl = getDefaultServerUrl();
+    setDraftServerUrl(defaultUrl);
+    setServerUrl(defaultUrl);
   };
 
   const savePassphrase = () => {
@@ -53,13 +55,21 @@ export default function SettingsScreen() {
     setSyncing(true);
     try {
       await runSync();
+    } catch (err) {
+      Alert.alert('Sync failed', 'Could not complete sync. Check server URL and login state.');
+      console.error(err);
     } finally {
       setSyncing(false);
     }
   };
 
   const clearCache = async () => {
-    await clearLocalCache();
+    try {
+      await clearLocalCache();
+    } catch (err) {
+      Alert.alert('Clear cache failed', 'Could not clear local cache.');
+      console.error(err);
+    }
   };
 
   const doLogin = async () => {
@@ -67,6 +77,9 @@ export default function SettingsScreen() {
     try {
       const res = await login(loginUser.trim(), loginPass);
       setSessionToken(res.token);
+    } catch (err) {
+      Alert.alert('Login failed', 'Invalid credentials or server unavailable.');
+      console.error(err);
     } finally {
       setAuthLoading(false);
     }
@@ -77,32 +90,27 @@ export default function SettingsScreen() {
       <Stack.Screen options={{ title: 'Settings' }} />
       <View style={styles.section}>
         <Text variant="titleMedium">Theme</Text>
-        <ToggleButton.Row value={theme} onValueChange={(v) => v && setTheme(v as any)} style={styles.row}>
-          <ToggleButton icon="theme-light-dark" value="system">
-            System
-          </ToggleButton>
-          <ToggleButton icon="white-balance-sunny" value="light">
-            Light
-          </ToggleButton>
-          <ToggleButton icon="moon-waning-crescent" value="dark">
-            Dark
-          </ToggleButton>
-        </ToggleButton.Row>
+        <SegmentedButtons
+          value={theme}
+          onValueChange={(v) => v && setTheme(v as any)}
+          buttons={[
+            { value: 'system', label: 'System', icon: 'theme-light-dark' },
+            { value: 'light', label: 'Light', icon: 'white-balance-sunny' },
+            { value: 'dark', label: 'Dark', icon: 'moon-waning-crescent' },
+          ]}
+        />
       </View>
 
       <View style={styles.section}>
         <Text variant="titleMedium">Default layout</Text>
-        <ToggleButton.Row
+        <SegmentedButtons
           value={defaultLayout}
           onValueChange={(v) => v && handleLayoutChange(v as 'list' | 'grid')}
-          style={styles.row}>
-          <ToggleButton icon="view-agenda-outline" value="list">
-            List
-          </ToggleButton>
-          <ToggleButton icon="view-grid-outline" value="grid">
-            Grid
-          </ToggleButton>
-        </ToggleButton.Row>
+          buttons={[
+            { value: 'list', label: 'List', icon: 'view-agenda-outline' },
+            { value: 'grid', label: 'Grid', icon: 'view-grid-outline' },
+          ]}
+        />
       </View>
 
       <View style={styles.section}>
@@ -135,7 +143,8 @@ export default function SettingsScreen() {
           </Button>
         </View>
         <Text variant="bodySmall" style={{ color: '#888' }}>
-          The client will use this URL for sync requests.
+          Android emulator usually needs 10.0.2.2, while web/iOS simulator can use localhost. Physical devices should
+          use the computer LAN IP.
         </Text>
       </View>
 
@@ -204,9 +213,6 @@ const styles = StyleSheet.create({
   },
   section: {
     gap: 12,
-  },
-  row: {
-    alignSelf: 'flex-start',
   },
   buttonRow: {
     flexDirection: 'row',

@@ -1,12 +1,11 @@
 import { useFocusEffect, Stack, router } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
-import { ActivityIndicator, Chip, FAB, Searchbar, Text, ToggleButton } from 'react-native-paper';
+import { ActivityIndicator, Chip, FAB, Searchbar, SegmentedButtons, Text, ToggleButton } from 'react-native-paper';
 
 import { AttachmentMeta, Label, NotePayload } from '@/src/api/types';
-import { fetchLabels } from '@/src/api/labels';
 import { getAllNotes } from '@/src/db/notesRepo';
-import { getLabels, replaceLabels } from '@/src/db/labelsRepo';
+import { getLabels } from '@/src/db/labelsRepo';
 import { runSync } from '@/src/services/syncService';
 import { useSettingsStore } from '@/src/store/settingsStore';
 import { useNotesUiStore } from '@/src/store/notesUiStore';
@@ -179,17 +178,15 @@ export default function HomeScreen() {
         <ToggleButton icon="view-agenda-outline" value="list" />
         <ToggleButton icon="view-grid-outline" value="grid" />
       </ToggleButton.Row>
-      <ToggleButton.Row
+      <SegmentedButtons
         value={sortBy}
         onValueChange={(value) => value && setSortBy(value as 'updatedAt' | 'createdAt')}
-        style={styles.sortRow}>
-        <ToggleButton icon="update" value="updatedAt">
-          Updated
-        </ToggleButton>
-        <ToggleButton icon="calendar" value="createdAt">
-          Created
-        </ToggleButton>
-      </ToggleButton.Row>
+        buttons={[
+          { value: 'updatedAt', label: 'Updated', icon: 'update' },
+          { value: 'createdAt', label: 'Created', icon: 'calendar' },
+        ]}
+        style={styles.sortRow}
+      />
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filters}>
         <Chip selected={!selectedLabelId && !colorFilter && !showPinnedOnly} onPress={resetFilters}>
           All
@@ -210,8 +207,11 @@ export default function HomeScreen() {
             key={c}
             selected={colorFilter === c}
             onPress={() => setColorFilter(colorFilter === c ? null : c)}
+            accessibilityLabel={`Filter notes by color ${colorIntToHex(c)}`}
             style={[styles.colorChip, { backgroundColor: colorIntToHex(c) }]}
-          />
+          >
+            {' '}
+          </Chip>
         ))}
       </ScrollView>
       <ScrollView

@@ -7,10 +7,10 @@ import {
   Button,
   Dialog,
   Portal,
+  SegmentedButtons,
   Switch,
   Text,
   TextInput,
-  ToggleButton,
 } from 'react-native-paper';
 import * as ImagePicker from 'expo-image-picker';
 
@@ -23,7 +23,7 @@ import { ColorPicker } from '@/src/ui/components/ColorPicker';
 import { AttachmentStrip } from '@/src/ui/components/AttachmentStrip';
 import { LabelPicker } from '@/src/ui/components/LabelPicker';
 import { getLabels, replaceLabels } from '@/src/db/labelsRepo';
-import { getNote as loadNote, saveNote } from '@/src/db/notesRepo';
+import { getNote as loadNote } from '@/src/db/notesRepo';
 import { queueAndSave, runSync } from '@/src/services/syncService';
 
 export default function NoteDetailScreen() {
@@ -148,6 +148,9 @@ export default function NoteDetailScreen() {
       await queueAndSave(updated);
       await runSync();
       router.back();
+    } catch (err) {
+      Alert.alert('Save failed', 'Could not save the note. Please try again.');
+      console.error(err);
     } finally {
       setSaving(false);
     }
@@ -206,7 +209,7 @@ export default function NoteDetailScreen() {
   return (
     <ScrollView contentContainerStyle={styles.container}>
       <Stack.Screen options={{ title: note.title || 'Note' }} />
-      <ToggleButton.Row
+      <SegmentedButtons
         value={noteType}
         onValueChange={(value) => {
           if (!value) return;
@@ -226,14 +229,12 @@ export default function NoteDetailScreen() {
           }
           setNoteType(next);
         }}
-        style={styles.toggleRow}>
-        <ToggleButton icon="note-outline" value="TEXT">
-          Text
-        </ToggleButton>
-        <ToggleButton icon="check-outline" value="CHECKLIST">
-          Checklist
-        </ToggleButton>
-      </ToggleButton.Row>
+        buttons={[
+          { value: 'TEXT', label: 'Text', icon: 'note-outline' },
+          { value: 'CHECKLIST', label: 'Checklist', icon: 'check-outline' },
+        ]}
+        style={styles.toggleRow}
+      />
       <TextInput
         label="Title"
         value={title}

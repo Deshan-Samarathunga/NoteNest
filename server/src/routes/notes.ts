@@ -1,65 +1,30 @@
 import { Router } from 'express';
-import { z } from 'zod';
 
+import { toHttpError } from '../errors';
+import { notePayloadSchema } from '../schemas/note';
 import { MegaNoteStorage } from '../storage';
 import { NotePayload } from '../types';
 
 const notesRouter = Router();
 const storage = new MegaNoteStorage();
 
-const noteSchema = z.object({
-  id: z.string(),
-  title: z.string().nullable().optional(),
-  body: z.string().nullable().optional(),
-  type: z.enum(['TEXT', 'CHECKLIST']).optional(),
-  checklist: z
-    .array(
-      z.object({
-        id: z.string(),
-        text: z.string(),
-        checked: z.boolean(),
-        sortOrder: z.number(),
-      })
-    )
-    .optional(),
-  labels: z.array(z.string()).optional(),
-  color: z.number().optional(),
-  pinned: z.boolean().optional(),
-  archived: z.boolean().optional(),
-  trashed: z.boolean().optional(),
-  reminderAt: z.number().nullable().optional(),
-  notificationId: z.string().nullable().optional(),
-  attachments: z
-    .array(
-      z.object({
-        id: z.string(),
-        uri: z.string(),
-        mimeType: z.string().nullable().optional(),
-        createdAt: z.number(),
-      })
-    )
-    .optional(),
-  createdAt: z.number().optional(),
-  updatedAt: z.number(),
-  deleted: z.boolean().optional(),
-});
-
 notesRouter.get('/:id', async (req, res) => {
   try {
     const passphrase = (req.headers['x-passphrase'] as string) || undefined;
-    const note = await storage.readNote(req.params.id, passphrase);
+    const note = await storage.readActiveNote(req.params.id, passphrase);
     if (!note) return res.status(404).json({ error: 'not_found' });
     res.json({ note, serverTime: Date.now() });
   } catch (err) {
     // eslint-disable-next-line no-console
     console.error('note/get error', err);
-    res.status(500).json({ error: 'note_get_failed' });
+    const httpErr = toHttpError(err, 'note_get_failed');
+    res.status(httpErr.status).json({ error: httpErr.error });
   }
 });
 
 notesRouter.put('/:id', async (req, res) => {
   try {
-    const parsed = noteSchema.safeParse({ ...req.body, id: req.params.id });
+    const parsed = notePayloadSchema.safeParse({ ...req.body, id: req.params.id });
     if (!parsed.success) return res.status(400).json({ error: 'invalid_payload' });
     const note = parsed.data as NotePayload;
     const passphrase = (req.headers['x-passphrase'] as string) || undefined;
@@ -67,7 +32,8 @@ notesRouter.put('/:id', async (req, res) => {
     res.json({ ok: true, serverTime: Date.now() });
   } catch (err) {
     console.error('note/put error', err);
-    res.status(500).json({ error: 'note_put_failed' });
+    const httpErr = toHttpError(err, 'note_put_failed');
+    res.status(httpErr.status).json({ error: httpErr.error });
   }
 });
 
@@ -80,7 +46,8 @@ notesRouter.delete('/:id', async (req, res) => {
     res.json({ ok: true, serverTime: now });
   } catch (err) {
     console.error('note/delete error', err);
-    res.status(500).json({ error: 'note_delete_failed' });
+    const httpErr = toHttpError(err, 'note_delete_failed');
+    res.status(httpErr.status).json({ error: httpErr.error });
   }
 });
 

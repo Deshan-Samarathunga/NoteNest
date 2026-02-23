@@ -1,20 +1,22 @@
 import { Router } from 'express';
 import { v4 as uuidv4 } from 'uuid';
 
+import { toHttpError } from '../errors';
 import { MegaNoteStorage } from '../storage';
 
 const labelsRouter = Router();
 const storage = new MegaNoteStorage();
 
-labelsRouter.get('/', async (_req, res) => {
+labelsRouter.get('/', async (req, res) => {
   try {
-    const passphrase = (res.req.headers['x-passphrase'] as string) || undefined;
+    const passphrase = (req.headers['x-passphrase'] as string) || undefined;
     const labels = await storage.getLabels(passphrase);
     res.json({ labels, serverTime: Date.now() });
   } catch (err) {
     // eslint-disable-next-line no-console
     console.error('labels/list error', err);
-    res.status(500).json({ error: 'labels_list_failed' });
+    const httpErr = toHttpError(err, 'labels_list_failed');
+    res.status(httpErr.status).json({ error: httpErr.error });
   }
 });
 
@@ -28,7 +30,8 @@ labelsRouter.post('/', async (req, res) => {
     res.json({ label, serverTime: Date.now() });
   } catch (err) {
     console.error('labels/create error', err);
-    res.status(500).json({ error: 'labels_create_failed' });
+    const httpErr = toHttpError(err, 'labels_create_failed');
+    res.status(httpErr.status).json({ error: httpErr.error });
   }
 });
 
@@ -43,7 +46,8 @@ labelsRouter.put('/:id', async (req, res) => {
     res.json({ label, serverTime: Date.now() });
   } catch (err) {
     console.error('labels/update error', err);
-    res.status(500).json({ error: 'labels_update_failed' });
+    const httpErr = toHttpError(err, 'labels_update_failed');
+    res.status(httpErr.status).json({ error: httpErr.error });
   }
 });
 
@@ -55,7 +59,8 @@ labelsRouter.delete('/:id', async (req, res) => {
     res.json({ ok: true, serverTime: Date.now() });
   } catch (err) {
     console.error('labels/delete error', err);
-    res.status(500).json({ error: 'labels_delete_failed' });
+    const httpErr = toHttpError(err, 'labels_delete_failed');
+    res.status(httpErr.status).json({ error: httpErr.error });
   }
 });
 
