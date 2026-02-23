@@ -1,6 +1,12 @@
 import { Platform } from 'react-native';
 
+<<<<<<< HEAD
 import { getServerBaseUrl, getSessionHeaders } from './http';
+=======
+import { useSettingsStore } from '@/src/store/settingsStore';
+
+import { getServerBaseUrl } from './http';
+>>>>>>> b6b73d5c15d0011d529497594fd80a3909826e8d
 import { AttachmentMeta } from './types';
 
 function extensionFromMime(mime?: string | null) {
@@ -32,9 +38,18 @@ export async function uploadAttachmentFromUri(uri: string, mimeType?: string | n
   }
 
   const base = getServerBaseUrl();
+  const token = useSettingsStore.getState().sessionToken;
+  const passphrase = useSettingsStore.getState().sessionPassphrase;
   const res = await fetch(`${base}/attachments`, {
     method: 'POST',
+<<<<<<< HEAD
     headers: getSessionHeaders(),
+=======
+    headers: {
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(passphrase ? { 'x-passphrase': passphrase } : {}),
+    },
+>>>>>>> b6b73d5c15d0011d529497594fd80a3909826e8d
     body: form,
   });
   if (!res.ok) {

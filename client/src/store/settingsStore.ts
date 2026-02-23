@@ -1,4 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Platform } from 'react-native';
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
 
@@ -20,13 +21,19 @@ type SettingsState = {
   setSessionPassphrase: (value: string) => void;
 };
 
+const DEFAULT_SERVER_URL = Platform.OS === 'android' ? 'http://10.0.2.2:4000' : 'http://localhost:4000';
+
 export const useSettingsStore = create<SettingsState>()(
   persist(
     (set) => ({
       theme: 'system',
       defaultLayout: 'grid',
       purgeDays: 7,
+<<<<<<< HEAD
       serverUrl: getDefaultServerUrl(),
+=======
+      serverUrl: DEFAULT_SERVER_URL,
+>>>>>>> b6b73d5c15d0011d529497594fd80a3909826e8d
       sessionToken: null,
       sessionPassphrase: '',
       setTheme: (theme) => set({ theme }),
