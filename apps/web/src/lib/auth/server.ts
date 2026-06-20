@@ -1,15 +1,48 @@
+import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'crypto';
 import jwt from 'jsonwebtoken';
 import { NextRequest, NextResponse } from 'next/server';
 import { getRequiredEnv } from '@/lib/storage/env';
 
+export type MegaCredentials = { email: string; password: string };
+
 export type AuthResult =
-  | { ok: true; username: string }
+  | ({ ok: true } & MegaCredentials)
   | { ok: false; response: NextResponse<{ error: string }> };
 
-export function signSession(username: string) {
-  return jwt.sign({ sub: username }, getRequiredEnv('SESSION_SECRET'), {
+const SESSION_TTL = '30d';
+export const SESSION_TTL_SECONDS = 30 * 24 * 60 * 60;
+
+function credsKey() {
+  // Derive a stable 32-byte AES key from the session secret.
+  return createHash('sha256').update(getRequiredEnv('SESSION_SECRET')).digest();
+}
+
+export function encryptCreds(creds: MegaCredentials): string {
+  const iv = randomBytes(12);
+  const cipher = createCipheriv('aes-256-gcm', credsKey(), iv);
+  const plaintext = Buffer.from(JSON.stringify(creds), 'utf-8');
+  const ciphertext = Buffer.concat([cipher.update(plaintext), cipher.final()]);
+  const tag = cipher.getAuthTag();
+  return [iv, tag, ciphertext].map((part) => part.toString('base64')).join('.');
+}
+
+export function decryptCreds(blob: string): MegaCredentials {
+  const [ivB64, tagB64, dataB64] = blob.split('.');
+  if (!ivB64 || !tagB64 || !dataB64) throw new Error('invalid_token');
+  const decipher = createDecipheriv('aes-256-gcm', credsKey(), Buffer.from(ivB64, 'base64'));
+  decipher.setAuthTag(Buffer.from(tagB64, 'base64'));
+  const plaintext = Buffer.concat([decipher.update(Buffer.from(dataB64, 'base64')), decipher.final()]);
+  const parsed = JSON.parse(plaintext.toString('utf-8'));
+  if (!parsed || typeof parsed.email !== 'string' || typeof parsed.password !== 'string') {
+    throw new Error('invalid_token');
+  }
+  return { email: parsed.email, password: parsed.password };
+}
+
+export function signSession(creds: MegaCredentials) {
+  return jwt.sign({ sub: creds.email, c: encryptCreds(creds) }, getRequiredEnv('SESSION_SECRET'), {
     algorithm: 'HS256',
-    expiresIn: '2h'
+    expiresIn: SESSION_TTL
   });
 }
 
@@ -22,7 +55,8 @@ export function requireAuth(request: NextRequest): AuthResult {
 
   try {
     const decoded = jwt.verify(token, getRequiredEnv('SESSION_SECRET')) as jwt.JwtPayload;
-    return { ok: true, username: String(decoded.sub ?? '') };
+    const creds = decryptCreds(String(decoded.c ?? ''));
+    return { ok: true, ...creds };
   } catch {
     return { ok: false, response: NextResponse.json({ error: 'unauthorized' }, { status: 401 }) };
   }

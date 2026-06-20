@@ -5,18 +5,20 @@
 Create `apps/web/.env.local` with:
 
 ```env
-MEGA_EMAIL=
-MEGA_PASSWORD=
 MEGA_FOLDER_NAME=NoteNest
 SESSION_SECRET=replace-with-a-long-random-secret
-AUTH_USERNAME=admin
-AUTH_PASSWORD=change-me
 ENABLE_ENCRYPTION=false
 PUBLIC_URL=http://localhost:3000
 NEXT_PUBLIC_API_BASE_URL=http://localhost:3000/api
 ```
 
-The web app and API run together in `apps/web`. MEGA credentials must only be configured on the server.
+The web app and API run together in `apps/web`. You sign in with your **real
+mega.nz email and password** on the login screen — there is no separate app login
+and no MEGA account configured on the server. Each user's notes are stored in the
+`MEGA_FOLDER_NAME` folder inside their own MEGA Drive.
+
+`SESSION_SECRET` both signs session tokens and encrypts the MEGA credentials
+carried inside them, so keep it long, random, and secret.
 
 ## Web
 

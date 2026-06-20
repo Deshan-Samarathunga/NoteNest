@@ -5,7 +5,9 @@ NoteNest is now organized as a two-app monorepo:
 - `apps/mobile`: Flutter mobile app for Android and iOS.
 - `apps/web`: Next.js web app with API routes that front MEGA cloud storage.
 
-The Next.js API keeps MEGA credentials server-side and exposes the same sync contract to both clients.
+You sign in with your **real mega.nz email and password**, and your notes are
+stored in your own MEGA account. The Next.js API validates the credentials against
+MEGA and exposes the same sync contract to both clients.
 
 ## Quick Start
 

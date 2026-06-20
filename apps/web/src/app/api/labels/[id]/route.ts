@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getPassphrase, requireAuth, toErrorResponse } from '@/lib/auth/server';
-import { noteStorage } from '@/lib/storage/noteStorage';
+import { getNoteStorage } from '@/lib/storage/noteStorage';
 
 export const runtime = 'nodejs';
 
@@ -23,7 +23,7 @@ export async function PUT(request: NextRequest, context: RouteContext) {
     if (!name) return NextResponse.json({ error: 'invalid_name' }, { status: 400 });
 
     const label = { id: await getId(context), name, updatedAt: Date.now() };
-    await noteStorage.upsertLabel(label, getPassphrase(request));
+    await getNoteStorage(auth).upsertLabel(label, getPassphrase(request));
     return NextResponse.json({ label, serverTime: Date.now() });
   } catch (error) {
     return toErrorResponse(error, 'labels_update_failed');
@@ -35,7 +35,7 @@ export async function DELETE(request: NextRequest, context: RouteContext) {
   if (!auth.ok) return auth.response;
 
   try {
-    await noteStorage.deleteLabel(await getId(context), getPassphrase(request));
+    await getNoteStorage(auth).deleteLabel(await getId(context), getPassphrase(request));
     return NextResponse.json({ ok: true, serverTime: Date.now() });
   } catch (error) {
     return toErrorResponse(error, 'labels_delete_failed');

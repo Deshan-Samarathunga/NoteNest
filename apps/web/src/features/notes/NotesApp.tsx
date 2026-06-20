@@ -150,6 +150,9 @@ export function NotesApp() {
   const [loginUser, setLoginUser] = useState('');
   const [loginPass, setLoginPass] = useState('');
   const [newLabel, setNewLabel] = useState('');
+  const [loginLoading, setLoginLoading] = useState(false);
+  const [loginError, setLoginError] = useState('');
+  const [settingsLoaded, setSettingsLoaded] = useState(false);
 
   const session: Session = useMemo(() => ({ token: settings.token, passphrase }), [settings.token, passphrase]);
 
@@ -158,6 +161,7 @@ export function NotesApp() {
     setSettingsState(loadedSettings);
     setNotes(getCachedNotes());
     setLabels(getCachedLabels());
+    setSettingsLoaded(true);
   }, []);
 
   useEffect(() => {
@@ -249,11 +253,20 @@ export function NotesApp() {
 
   const doLogin = async (event: FormEvent) => {
     event.preventDefault();
-    const result = await login(loginUser.trim(), loginPass);
-    setSettings({ ...settings, token: result.token });
-    setLoginPass('');
-    setStatus('Logged in');
-    setTimeout(() => runSync(), 0);
+    setLoginError('');
+    setLoginLoading(true);
+    try {
+      const result = await login(loginUser.trim(), loginPass);
+      setSettings({ ...settings, token: result.token });
+      setLoginPass('');
+      setStatus('Logged in');
+      setTimeout(() => runSync(), 0);
+    } catch {
+      setLoginError('Login failed — check your Mega.nz email and password.');
+      setStatus('Login failed');
+    } finally {
+      setLoginLoading(false);
+    }
   };
 
   const visibleNotes = useMemo(() => {
@@ -289,6 +302,24 @@ export function NotesApp() {
     }),
     [visibleNotes]
   );
+
+  // Don't render anything until settings are loaded from localStorage
+  if (!settingsLoaded) return null;
+
+  // Show login screen when not authenticated
+  if (!settings.token) {
+    return (
+      <LoginScreen
+        email={loginUser}
+        setEmail={setLoginUser}
+        password={loginPass}
+        setPassword={setLoginPass}
+        onSubmit={doLogin}
+        loading={loginLoading}
+        error={loginError}
+      />
+    );
+  }
 
   const addLabel = async () => {
     const name = newLabel.trim();
@@ -461,6 +492,83 @@ function NavButton({
       {icon}
       {label}
     </button>
+  );
+}
+
+function LoginScreen({
+  email,
+  setEmail,
+  password,
+  setPassword,
+  onSubmit,
+  loading,
+  error
+}: {
+  email: string;
+  setEmail: (v: string) => void;
+  password: string;
+  setPassword: (v: string) => void;
+  onSubmit: (e: FormEvent) => void;
+  loading: boolean;
+  error: string;
+}) {
+  return (
+    <div className="login-screen">
+      <form className="login-card" onSubmit={onSubmit}>
+        <div className="brand">
+          <span className="brand-mark">N</span>
+          <span>NoteNest</span>
+        </div>
+        <p className="login-subtitle">
+          Sign in with your <strong>Mega.nz</strong> account.
+          <br />
+          Your notes are stored in your own MEGA cloud drive.
+        </p>
+        {error ? <p className="login-error">{error}</p> : null}
+        <label>
+          Email
+          <input
+            id="login-email"
+            type="email"
+            autoComplete="username"
+            placeholder="you@example.com"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            required
+            disabled={loading}
+          />
+        </label>
+        <label>
+          Password
+          <input
+            id="login-password"
+            type="password"
+            autoComplete="current-password"
+            placeholder="Your Mega.nz password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            required
+            disabled={loading}
+          />
+        </label>
+        <button id="login-submit" className="login-btn" type="submit" disabled={loading}>
+          {loading ? (
+            <>
+              <span className="spinner" />
+              Signing in…
+            </>
+          ) : (
+            <>
+              <LogIn size={18} />
+              Sign in
+            </>
+          )}
+        </button>
+        <p className="login-note">
+          Only Mega.nz accounts <strong>without 2FA</strong> are supported.
+        </p>
+      </form>
+    </div>
   );
 }
 
@@ -965,14 +1073,25 @@ function SettingsPanel({
         </div>
       </div>
       <form className="panel" onSubmit={doLogin}>
-        <h1>Auth</h1>
+        <h1>MEGA login</h1>
+        <p className="muted">Sign in with your mega.nz email and password. Your notes are stored in your own MEGA account.</p>
         <label>
-          Username
-          <input value={loginUser} onChange={(event) => setLoginUser(event.target.value)} />
+          MEGA email
+          <input
+            type="email"
+            autoComplete="username"
+            value={loginUser}
+            onChange={(event) => setLoginUser(event.target.value)}
+          />
         </label>
         <label>
-          Password
-          <input type="password" value={loginPass} onChange={(event) => setLoginPass(event.target.value)} />
+          MEGA password
+          <input
+            type="password"
+            autoComplete="current-password"
+            value={loginPass}
+            onChange={(event) => setLoginPass(event.target.value)}
+          />
         </label>
         <div className="button-row">
           <button className="primary" type="submit">

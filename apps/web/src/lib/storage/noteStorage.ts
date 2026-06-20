@@ -1,5 +1,6 @@
 import { Storage as MegaStorage } from 'megajs';
-import { ensureFolder, getMegaFolderName, getMegaRoot, MegaFile } from '@/lib/mega/client';
+import { MegaCredentials } from '@/lib/auth/server';
+import { ensureFolder, getMegaFolderName, getMegaStorage, MegaFile } from '@/lib/mega/client';
 import { maybeDecrypt, maybeEncrypt } from '@/lib/storage/cryptoHelper';
 import { IndexEntry, IndexFile, Label, NotePayload } from '@/lib/sync/types';
 
@@ -97,15 +98,22 @@ function wrapMaybeEncrypted<T>(payload: T, passphrase?: string) {
 }
 
 export class MegaNoteStorage {
+  private readonly email: string;
+  private readonly password: string;
   private storage: MegaStorage | null = null;
   private appFolder: MegaFile | null = null;
   private notesFolder: MegaFile | null = null;
   private attachmentsFolder: MegaFile | null = null;
   private labelsCache: Label[] | null = null;
 
+  constructor(creds: MegaCredentials) {
+    this.email = creds.email;
+    this.password = creds.password;
+  }
+
   private async init() {
     if (this.storage && this.appFolder && this.notesFolder && this.attachmentsFolder) return;
-    const storage = await getMegaRoot();
+    const storage = await getMegaStorage(this.email, this.password);
     const folderName = getMegaFolderName();
     this.appFolder = await ensureFolder(storage, folderName);
     this.notesFolder = await ensureFolder(storage, `${folderName}-${NOTES_FOLDER}`);
@@ -264,4 +272,16 @@ export class MegaNoteStorage {
   }
 }
 
-export const noteStorage = new MegaNoteStorage();
+// One storage instance per MEGA account, so folder handles and the labels cache
+// are reused across requests for the same logged-in user.
+const noteStorageInstances = new Map<string, MegaNoteStorage>();
+
+export function getNoteStorage(creds: MegaCredentials): MegaNoteStorage {
+  const key = creds.email.trim().toLowerCase();
+  let instance = noteStorageInstances.get(key);
+  if (!instance) {
+    instance = new MegaNoteStorage(creds);
+    noteStorageInstances.set(key, instance);
+  }
+  return instance;
+}

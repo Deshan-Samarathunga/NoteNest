@@ -30,10 +30,10 @@ class ApiClient {
         if (settings.sessionPassphrase.isNotEmpty) 'x-passphrase': settings.sessionPassphrase,
       };
 
-  Future<String> login(String username, String password) async {
+  Future<String> login(String email, String password) async {
     final response = await dio.post<Map<String, dynamic>>(
       '/auth/login',
-      data: {'username': username, 'password': password},
+      data: {'email': email, 'password': password},
     );
     return response.data?['token'] as String;
   }

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getPassphrase, requireAuth, toErrorResponse } from '@/lib/auth/server';
-import { noteStorage } from '@/lib/storage/noteStorage';
+import { getNoteStorage } from '@/lib/storage/noteStorage';
 
 export const runtime = 'nodejs';
 
@@ -9,7 +9,7 @@ export async function GET(request: NextRequest) {
   if (!auth.ok) return auth.response;
 
   try {
-    const labels = await noteStorage.getLabels(getPassphrase(request));
+    const labels = await getNoteStorage(auth).getLabels(getPassphrase(request));
     return NextResponse.json({ labels, serverTime: Date.now() });
   } catch (error) {
     return toErrorResponse(error, 'labels_list_failed');
@@ -26,7 +26,7 @@ export async function POST(request: NextRequest) {
     if (!name) return NextResponse.json({ error: 'invalid_name' }, { status: 400 });
 
     const label = { id: crypto.randomUUID(), name, updatedAt: Date.now() };
-    await noteStorage.upsertLabel(label, getPassphrase(request));
+    await getNoteStorage(auth).upsertLabel(label, getPassphrase(request));
     return NextResponse.json({ label, serverTime: Date.now() });
   } catch (error) {
     return toErrorResponse(error, 'labels_create_failed');

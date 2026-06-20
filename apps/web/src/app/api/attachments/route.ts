@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAuth, toErrorResponse } from '@/lib/auth/server';
-import { noteStorage } from '@/lib/storage/noteStorage';
+import { getNoteStorage } from '@/lib/storage/noteStorage';
 
 export const runtime = 'nodejs';
 
@@ -20,7 +20,7 @@ export async function POST(request: NextRequest) {
 
     const id = crypto.randomUUID();
     const buffer = Buffer.from(await file.arrayBuffer());
-    await noteStorage.uploadAttachment(id, buffer, file.type);
+    await getNoteStorage(auth).uploadAttachment(id, buffer, file.type);
 
     const createdAt = Date.now();
     const baseUrl = process.env.PUBLIC_URL || new URL(request.url).origin;

@@ -17,7 +17,7 @@ class SettingsScreen extends ConsumerStatefulWidget {
 class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   late final TextEditingController apiUrlController;
   final passphraseController = TextEditingController();
-  final usernameController = TextEditingController();
+  final emailController = TextEditingController();
   final passwordController = TextEditingController();
   bool authLoading = false;
 
@@ -31,7 +31,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   void dispose() {
     apiUrlController.dispose();
     passphraseController.dispose();
-    usernameController.dispose();
+    emailController.dispose();
     passwordController.dispose();
     super.dispose();
   }
@@ -99,9 +99,16 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           const SizedBox(height: 8),
           FilledButton(onPressed: () => controller.setSessionPassphrase(passphraseController.text), child: const Text('Save passphrase')),
           const Divider(height: 36),
-          TextField(controller: usernameController, decoration: const InputDecoration(labelText: 'Username')),
+          const Text('Sign in with your mega.nz email and password.'),
           const SizedBox(height: 12),
-          TextField(controller: passwordController, decoration: const InputDecoration(labelText: 'Password'), obscureText: true),
+          TextField(
+            controller: emailController,
+            decoration: const InputDecoration(labelText: 'MEGA email'),
+            keyboardType: TextInputType.emailAddress,
+            autocorrect: false,
+          ),
+          const SizedBox(height: 12),
+          TextField(controller: passwordController, decoration: const InputDecoration(labelText: 'MEGA password'), obscureText: true),
           const SizedBox(height: 8),
           Wrap(
             spacing: 8,
@@ -140,7 +147,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   Future<void> _login() async {
     setState(() => authLoading = true);
     try {
-      final token = await ref.read(apiClientProvider).login(usernameController.text.trim(), passwordController.text);
+      final token = await ref.read(apiClientProvider).login(emailController.text.trim(), passwordController.text);
       await ref.read(settingsProvider.notifier).setSessionToken(token);
       passwordController.clear();
       await ref.read(notesControllerProvider.notifier).sync();

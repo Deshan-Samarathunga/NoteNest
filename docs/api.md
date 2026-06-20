@@ -5,8 +5,14 @@ All app data is stored in MEGA through Next.js API routes under `/api`. Clients 
 ## Auth
 
 - `POST /api/auth/login`
-- Body: `{ "username": "admin", "password": "change-me" }`
-- Response: `{ "token": "...", "expiresIn": 7200 }`
+- Body: `{ "email": "you@example.com", "password": "your-mega-password" }`
+- The email/password are your **mega.nz** credentials; the server validates them by logging into MEGA.
+- Response: `{ "token": "...", "expiresIn": 2592000 }`
+
+The token is a JWT signed with `SESSION_SECRET` whose payload carries your MEGA
+credentials encrypted (AES-256-GCM) with a key derived from `SESSION_SECRET`.
+Every subsequent request decrypts them and operates against your own MEGA account,
+so `SESSION_SECRET` must be kept secret.
 
 ## Sync
 

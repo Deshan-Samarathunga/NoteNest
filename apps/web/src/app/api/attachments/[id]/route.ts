@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAuth, toErrorResponse } from '@/lib/auth/server';
-import { noteStorage } from '@/lib/storage/noteStorage';
+import { getNoteStorage } from '@/lib/storage/noteStorage';
 
 export const runtime = 'nodejs';
 
@@ -23,7 +23,7 @@ export async function GET(request: NextRequest, context: RouteContext) {
 
   try {
     const params = await context.params;
-    const result = await noteStorage.downloadAttachment(params.id);
+    const result = await getNoteStorage(auth).downloadAttachment(params.id);
     if (!result) return NextResponse.json({ error: 'not_found' }, { status: 404 });
     return new NextResponse(result.buffer, {
       headers: {

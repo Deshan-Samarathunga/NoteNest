@@ -32,11 +32,11 @@ async function apiJson<T>(path: string, session: Session, init: RequestInit = {}
   return response.json() as Promise<T>;
 }
 
-export async function login(username: string, password: string) {
+export async function login(email: string, password: string) {
   const response = await fetch(`${API_BASE}/auth/login`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ username, password })
+    body: JSON.stringify({ email, password })
   });
   if (!response.ok) throw new Error('Login failed');
   return response.json() as Promise<{ token: string; expiresIn: number }>;
