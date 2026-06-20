@@ -57,12 +57,14 @@ class AttachmentMeta {
     required this.id,
     required this.uri,
     this.mimeType,
+    this.fileName,
     required this.createdAt,
   });
 
   final String id;
   final String uri;
   final String? mimeType;
+  final String? fileName;
   final int createdAt;
 
   factory AttachmentMeta.fromJson(Map<String, dynamic> json) {
@@ -70,14 +72,16 @@ class AttachmentMeta {
       id: json['id'] as String,
       uri: json['uri'] as String,
       mimeType: json['mimeType'] as String?,
-      createdAt: (json['createdAt'] as num?)?.toInt() ?? 0,
+      fileName: json['fileName'] as String?,
+      createdAt: (json['createdAt'] as num).toInt(),
     );
   }
 
   Map<String, dynamic> toJson() => {
         'id': id,
         'uri': uri,
-        'mimeType': mimeType,
+        if (mimeType != null) 'mimeType': mimeType,
+        if (fileName != null) 'fileName': fileName,
         'createdAt': createdAt,
       };
 }

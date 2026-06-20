@@ -73,6 +73,36 @@ class NoteCard extends StatelessWidget {
                   style: TextStyle(color: foreground),
                 ),
               const SizedBox(height: 8),
+              Builder(
+                builder: (context) {
+                  int imgCount = 0, audCount = 0, vidCount = 0, othCount = 0;
+                  for (final att in note.attachments) {
+                    final mime = att.mimeType?.toLowerCase() ?? '';
+                    if (mime.startsWith('image/')) imgCount++;
+                    else if (mime.startsWith('audio/')) audCount++;
+                    else if (mime.startsWith('video/')) vidCount++;
+                    else othCount++;
+                  }
+                  if (note.attachments.isEmpty) return const SizedBox.shrink();
+                  
+                  Widget _icon(IconData icon, int count) => count > 0 
+                    ? Row(mainAxisSize: MainAxisSize.min, children: [Icon(icon, size: 14, color: foreground), const SizedBox(width: 4), Text('$count', style: TextStyle(color: foreground, fontSize: 12))])
+                    : const SizedBox.shrink();
+
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 8.0),
+                    child: Wrap(
+                      spacing: 8,
+                      children: [
+                        _icon(Icons.image_outlined, imgCount),
+                        _icon(Icons.music_note_outlined, audCount),
+                        _icon(Icons.play_circle_outline, vidCount),
+                        _icon(Icons.attach_file, othCount),
+                      ],
+                    ),
+                  );
+                }
+              ),
               Wrap(
                 spacing: 6,
                 runSpacing: 6,

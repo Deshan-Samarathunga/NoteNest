@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import 'package:uuid/uuid.dart';
+import 'package:url_launcher/url_launcher_string.dart';
 
 import '../../core/models.dart';
 import '../attachments/attachments_service.dart';
@@ -146,22 +147,31 @@ class _NoteEditorScreenState extends ConsumerState<NoteEditorScreen> {
             children: [
               FilledButton.icon(
                 onPressed: uploading ? null : _uploadAttachment,
-                icon: const Icon(Icons.image_outlined),
-                label: Text(uploading ? 'Uploading' : 'Add image'),
+                icon: const Icon(Icons.attach_file),
+                label: Text(uploading ? 'Uploading' : 'Add file'),
               ),
             ],
           ),
           const SizedBox(height: 8),
           ...draft.attachments.map(
-            (attachment) => ListTile(
-              leading: const Icon(Icons.attachment),
-              title: Text(attachment.mimeType ?? 'Attachment'),
-              subtitle: Text(attachment.uri, maxLines: 1, overflow: TextOverflow.ellipsis),
-              trailing: IconButton(
-                icon: const Icon(Icons.close),
-                onPressed: () => setState(() => draft = _copyDraft(attachments: draft.attachments.where((item) => item.id != attachment.id).toList())),
-              ),
-            ),
+            (attachment) {
+              final mime = attachment.mimeType?.toLowerCase() ?? '';
+              IconData icon = Icons.insert_drive_file_outlined;
+              if (mime.startsWith('image/')) icon = Icons.image_outlined;
+              else if (mime.startsWith('video/')) icon = Icons.play_circle_outline;
+              else if (mime.startsWith('audio/')) icon = Icons.music_note_outlined;
+              
+              return ListTile(
+                leading: Icon(icon),
+                title: Text(attachment.fileName ?? attachment.mimeType ?? 'Attachment'),
+                subtitle: Text(attachment.uri, maxLines: 1, overflow: TextOverflow.ellipsis),
+                onTap: () => launchUrlString(attachment.uri, mode: LaunchMode.externalApplication),
+                trailing: IconButton(
+                  icon: const Icon(Icons.close),
+                  onPressed: () => setState(() => draft = _copyDraft(attachments: draft.attachments.where((item) => item.id != attachment.id).toList())),
+                ),
+              );
+            },
           ),
           const SizedBox(height: 24),
           FilledButton.icon(onPressed: saving ? null : _save, icon: const Icon(Icons.save_outlined), label: const Text('Save')),

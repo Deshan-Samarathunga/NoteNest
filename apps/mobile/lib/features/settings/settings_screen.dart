@@ -15,7 +15,6 @@ class SettingsScreen extends ConsumerStatefulWidget {
 }
 
 class _SettingsScreenState extends ConsumerState<SettingsScreen> {
-  late final TextEditingController apiUrlController;
   final passphraseController = TextEditingController();
   final emailController = TextEditingController();
   final passwordController = TextEditingController();
@@ -24,12 +23,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   @override
   void initState() {
     super.initState();
-    apiUrlController = TextEditingController(text: ref.read(settingsProvider).apiBaseUrl);
   }
 
   @override
   void dispose() {
-    apiUrlController.dispose();
     passphraseController.dispose();
     emailController.dispose();
     passwordController.dispose();
@@ -78,22 +75,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             onChanged: (value) => controller.setPurgeDays(value ?? 7),
           ),
           const SizedBox(height: 12),
-          TextField(controller: apiUrlController, decoration: const InputDecoration(labelText: 'API base URL'), keyboardType: TextInputType.url),
-          const SizedBox(height: 8),
-          Wrap(
-            spacing: 8,
-            children: [
-              FilledButton(onPressed: () => controller.setApiBaseUrl(apiUrlController.text), child: const Text('Save URL')),
-              OutlinedButton(
-                onPressed: () {
-                  final url = SettingsController.defaultApiBaseUrl();
-                  apiUrlController.text = url;
-                  controller.setApiBaseUrl(url);
-                },
-                child: const Text('Reset'),
-              ),
-            ],
-          ),
           const SizedBox(height: 20),
           TextField(controller: passphraseController, decoration: const InputDecoration(labelText: 'Session passphrase'), obscureText: true),
           const SizedBox(height: 8),

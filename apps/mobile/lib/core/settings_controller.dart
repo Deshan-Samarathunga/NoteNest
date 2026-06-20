@@ -64,8 +64,7 @@ class SettingsController extends StateNotifier<SettingsState> {
   final SharedPreferences _prefs;
 
   static String defaultApiBaseUrl() {
-    if (Platform.isAndroid) return 'http://10.0.2.2:3000/api';
-    return 'http://localhost:3000/api';
+    return 'http://192.168.1.5:3000/api';
   }
 
   Future<void> setTheme(String value) async {
