@@ -4,12 +4,17 @@ import {
   Archive,
   Bell,
   Check,
+  Download,
+  File as FileIcon,
   Grid2X2,
   Image as ImageIcon,
   List,
   LogIn,
   LogOut,
+  Music,
+  Paperclip,
   Pin,
+  Play,
   Plus,
   RefreshCw,
   Save,
@@ -17,19 +22,22 @@ import {
   Settings,
   Tags,
   Trash2,
+  Upload,
   X
 } from 'lucide-react';
-import { ChangeEvent, FormEvent, useEffect, useMemo, useState } from 'react';
+import { ChangeEvent, FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AttachmentMeta, ChecklistItem, Label, NotePayload, NoteType } from '@/lib/sync/types';
 import {
   createLabel,
   deleteLabel,
+  getStorageQuota,
   login,
   pullNotes,
   pushNotes,
   Session,
   updateLabel,
-  uploadAttachment
+  uploadAttachment,
+  UploadProgress
 } from './apiClient';
 import {
   addMutation,
@@ -59,6 +67,17 @@ function colorHex(value?: number) {
 
 function noteTitle(note: NotePayload) {
   return note.title?.trim() || 'Untitled note';
+}
+
+function formatBytes(bytes: number) {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+}
+
+function formatSpeed(bps: number) {
+  return `${formatBytes(bps)}/s`;
 }
 
 function nowNote(): NotePayload {
@@ -660,7 +679,7 @@ function NotesSection({
       {title ? <h2>{title}</h2> : null}
       <div className={layout === 'grid' ? 'notes-grid' : 'notes-list'}>
         {notes.map((note) => (
-          <article className="note-card" key={note.id} style={{ backgroundColor: colorHex(note.color) }}>
+          <article className={`note-card ${note.color && note.color !== 0xffffff ? 'colored-note' : ''}`} key={note.id} style={{ backgroundColor: note.color && note.color !== 0xffffff ? colorHex(note.color) : 'var(--surface)' }}>
             <button className="note-body-button" onClick={() => onOpen(note)}>
               <div className="note-card-header">
                 <h3>{noteTitle(note)}</h3>
@@ -688,12 +707,43 @@ function NotesSection({
                     </span>
                   ))}
               </div>
-              {(note.attachments || []).length ? (
-                <span className="attachment-count">
-                  <ImageIcon size={14} />
-                  {note.attachments?.length}
-                </span>
-              ) : null}
+              {(() => {
+                const atts = note.attachments || [];
+                if (!atts.length) return null;
+                const counts = atts.reduce((acc, att) => {
+                  const mime = (att.mimeType || '').toLowerCase();
+                  if (mime.startsWith('image/')) acc.image++;
+                  else if (mime.startsWith('audio/')) acc.audio++;
+                  else if (mime.startsWith('video/')) acc.video++;
+                  else acc.other++;
+                  return acc;
+                }, { image: 0, audio: 0, video: 0, other: 0 });
+
+                return (
+                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '4px' }}>
+                    {counts.image > 0 && (
+                      <span className="attachment-count">
+                        <ImageIcon size={14} /> {counts.image}
+                      </span>
+                    )}
+                    {counts.audio > 0 && (
+                      <span className="attachment-count">
+                        <Music size={14} /> {counts.audio}
+                      </span>
+                    )}
+                    {counts.video > 0 && (
+                      <span className="attachment-count">
+                        <Play size={14} /> {counts.video}
+                      </span>
+                    )}
+                    {counts.other > 0 && (
+                      <span className="attachment-count">
+                        <Paperclip size={14} /> {counts.other}
+                      </span>
+                    )}
+                  </div>
+                );
+              })()}
             </button>
             <div className="note-actions">
               <button title="Pin" onClick={() => onPatch(note, { pinned: !note.pinned })}>
@@ -726,6 +776,62 @@ function NotesSection({
   );
 }
 
+function AttachmentPreview({ session, attachment, onRemove }: { session: Session; attachment: AttachmentMeta; onRemove: () => void }) {
+  let preview = null;
+  let mime = '';
+
+  try {
+    mime = attachment?.mimeType?.toLowerCase() || '';
+    const tokenUri = attachment?.uri ? `${attachment.uri}?token=${session.token}` : '';
+
+    if (mime.startsWith('image/')) {
+      preview = <img src={tokenUri} alt={attachment.fileName || 'Image'} className="attachment-image" loading="lazy" />;
+    } else if (mime.startsWith('video/')) {
+      preview = <video src={tokenUri} controls className="attachment-video" preload="metadata" />;
+    } else if (mime.startsWith('audio/')) {
+      preview = <audio src={tokenUri} controls className="attachment-audio" preload="metadata" />;
+    } else if (mime === 'application/pdf') {
+      preview = <embed src={tokenUri} type="application/pdf" className="attachment-pdf" />;
+    } else {
+      preview = (
+        <a href={tokenUri} target="_blank" rel="noreferrer" className="attachment-generic">
+          <FileIcon size={32} />
+          <span className="attachment-name">{attachment.fileName || 'Attachment'}</span>
+          {attachment.fileSize ? <span className="attachment-size">{formatBytes(attachment.fileSize)}</span> : null}
+          <span className="attachment-download">
+            <Download size={14} /> Download
+          </span>
+        </a>
+      );
+    }
+  } catch (err) {
+    console.error('Attachment render error:', err);
+  }
+
+  // Bulletproof fallback
+  if (!preview) {
+    preview = (
+      <div style={{ padding: '24px', textAlign: 'center', color: 'var(--danger)' }}>
+        <p>Corrupted or unreadable attachment</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="attachment-card">
+      <div className="attachment-card-header" style={{ padding: '8px 12px', background: 'var(--surface)', borderBottom: '1px solid var(--line)', fontSize: '0.8rem', color: 'var(--muted)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '80%' }}>
+          {attachment?.fileName || 'Attachment'} ({mime || 'unknown type'})
+        </span>
+        <button type="button" className="attachment-remove" onClick={onRemove} aria-label="Remove attachment" style={{ position: 'static', background: 'transparent', color: 'var(--text)', width: 'auto', height: 'auto', padding: '4px' }}>
+          <X size={14} />
+        </button>
+      </div>
+      <div className="attachment-card-content">{preview}</div>
+    </div>
+  );
+}
+
 function NoteEditor({
   mode,
   labels,
@@ -742,6 +848,8 @@ function NoteEditor({
   const initial = mode.kind === 'edit' ? mode.note : nowNote();
   const [draft, setDraft] = useState<NotePayload>(initial);
   const [uploading, setUploading] = useState(false);
+  const [progress, setProgress] = useState<UploadProgress | null>(null);
+  const [uploadError, setUploadError] = useState<string | null>(null);
 
   const update = (patch: Partial<NotePayload>) => setDraft((current) => ({ ...current, ...patch }));
   const checklist = draft.checklist || [];
@@ -749,12 +857,33 @@ function NoteEditor({
   const pickFiles = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
+    setUploadError(null);
     setUploading(true);
+    setProgress(null);
     try {
-      const attachment = await uploadAttachment(session, file);
-      update({ attachments: [attachment, ...(draft.attachments || [])] });
+      // Check quota first (but don't abort if the quota check itself fails)
+      try {
+        const quota = await getStorageQuota(session);
+        if (file.size > quota.spaceFree) {
+          setUploadError(`Not enough MEGA storage. You have ${formatBytes(quota.spaceFree)} free but this file is ${formatBytes(file.size)}.`);
+          setUploading(false);
+          event.target.value = '';
+          return;
+        }
+      } catch (quotaError) {
+        console.warn('Could not check storage quota, proceeding with upload anyway:', quotaError);
+      }
+
+      const attachment = await uploadAttachment(session, file, setProgress);
+      setDraft((current) => ({
+        ...current,
+        attachments: [attachment, ...(current.attachments || [])]
+      }));
+    } catch (error) {
+      setUploadError(error instanceof Error ? error.message : 'Upload failed');
     } finally {
       setUploading(false);
+      setProgress(null);
       event.target.value = '';
     }
   };
@@ -867,9 +996,9 @@ function NoteEditor({
               onChange={(event) => update({ reminderAt: fromDateTimeLocal(event.target.value) })}
             />
           </label>
-          <label>
-            Attachments
-            <input type="file" accept="image/*" onChange={pickFiles} disabled={!session.token || uploading} />
+          <label className="attachment-upload-btn">
+            Attachments ({draft.attachments?.length || 0})
+            <input type="file" onChange={pickFiles} disabled={!session.token || uploading} />
           </label>
         </div>
 
@@ -929,12 +1058,29 @@ function NoteEditor({
           })}
         </div>
 
+        {uploadError && <p className="upload-error">{uploadError}</p>}
+        {uploading && progress && (
+          <div className="upload-progress-container">
+            <div className="upload-progress-bar" style={{ width: `${progress.percent}%` }} />
+            <div className="upload-progress-text">
+              <span>{progress.percent >= 100 ? 'Processing at Mega.nz...' : `${progress.percent}% uploaded`}</span>
+              <span>{progress.percent >= 100 ? '' : formatSpeed(progress.speedBps)}</span>
+            </div>
+          </div>
+        )}
+
         <div className="attachment-strip">
           {(draft.attachments || []).map((attachment: AttachmentMeta) => (
-            <a href={attachment.uri} key={attachment.id} target="_blank" rel="noreferrer">
-              <ImageIcon size={16} />
-              {attachment.mimeType || 'Attachment'}
-            </a>
+            <AttachmentPreview
+              key={attachment.id}
+              session={session}
+              attachment={attachment}
+              onRemove={() =>
+                update({
+                  attachments: (draft.attachments || []).filter((a) => a.id !== attachment.id)
+                })
+              }
+            />
           ))}
         </div>
 
@@ -942,9 +1088,9 @@ function NoteEditor({
           <button className="secondary" onClick={onClose}>
             Cancel
           </button>
-          <button className="primary" onClick={save}>
+          <button className="primary" onClick={save} disabled={uploading}>
             <Save size={18} />
-            Save
+            {uploading ? 'Wait for upload...' : 'Save'}
           </button>
         </footer>
       </section>

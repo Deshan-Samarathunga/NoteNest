@@ -17,7 +17,12 @@ export async function getMegaStorage(email: string, password: string): Promise<S
   const key = `${email.trim().toLowerCase()}:${password}`;
   let pending = storageCache.get(key);
   if (!pending) {
-    pending = new Storage({ email, password, autologin: true }).ready;
+    pending = new Storage({
+      email,
+      password,
+      autologin: true,
+      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+    }).ready;
     // Don't cache a failed login (e.g. wrong password) so retries can succeed.
     pending.catch(() => storageCache.delete(key));
     storageCache.set(key, pending);

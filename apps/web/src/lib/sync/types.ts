@@ -11,6 +11,8 @@ export type AttachmentMeta = {
   id: string;
   uri: string;
   mimeType?: string | null;
+  fileName?: string;
+  fileSize?: number;
   createdAt: number;
 };
 

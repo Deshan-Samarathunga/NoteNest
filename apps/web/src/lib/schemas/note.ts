@@ -11,6 +11,8 @@ const attachmentSchema = z.object({
   id: z.string().min(1),
   uri: z.string().min(1),
   mimeType: z.string().nullable().optional(),
+  fileName: z.string().optional(),
+  fileSize: z.number().nonnegative().optional(),
   createdAt: z.number().finite()
 });
 

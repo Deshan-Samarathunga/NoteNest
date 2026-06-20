@@ -4,6 +4,13 @@ import { getNoteStorage } from '@/lib/storage/noteStorage';
 
 export const runtime = 'nodejs';
 
+function formatBytes(bytes: number) {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+}
+
 export async function POST(request: NextRequest) {
   const auth = requireAuth(request);
   if (!auth.ok) return auth.response;
@@ -14,13 +21,28 @@ export async function POST(request: NextRequest) {
     if (!(file instanceof File)) {
       return NextResponse.json({ error: 'file_missing' }, { status: 400 });
     }
-    if (file.size > 8 * 1024 * 1024) {
-      return NextResponse.json({ error: 'file_too_large' }, { status: 413 });
+
+    const storage = getNoteStorage(auth);
+
+    // Check Mega.nz quota before uploading.
+    try {
+      const quota = await storage.getStorageQuota();
+      if (file.size > quota.spaceFree) {
+        return NextResponse.json(
+          {
+            error: `Not enough MEGA storage. You have ${formatBytes(quota.spaceFree)} free but this file is ${formatBytes(file.size)}.`
+          },
+          { status: 413 }
+        );
+      }
+    } catch {
+      // If quota check fails, still attempt the upload — MEGA will reject if full.
     }
 
     const id = crypto.randomUUID();
     const buffer = Buffer.from(await file.arrayBuffer());
-    await getNoteStorage(auth).uploadAttachment(id, buffer, file.type);
+    const originalName = file.name || undefined;
+    await storage.uploadAttachment(id, buffer, file.type, originalName);
 
     const createdAt = Date.now();
     const baseUrl = process.env.PUBLIC_URL || new URL(request.url).origin;
@@ -29,6 +51,8 @@ export async function POST(request: NextRequest) {
         id,
         uri: `${baseUrl}/api/attachments/${id}`,
         mimeType: file.type || 'application/octet-stream',
+        fileName: file.name || undefined,
+        fileSize: file.size || undefined,
         createdAt
       }
     });

@@ -11,13 +11,52 @@ const ATTACHMENTS_FOLDER = 'attachments';
 
 type VersionExtractor<T> = (value: T) => number | undefined;
 
-function extensionFromMime(mime?: string | null) {
+function extensionFromMime(mime?: string | null, originalName?: string) {
+  // Prefer the original file extension when available.
+  if (originalName) {
+    const dot = originalName.lastIndexOf('.');
+    if (dot >= 0) return originalName.slice(dot);
+  }
   if (!mime) return '.bin';
+  // Images
   if (mime.includes('jpeg') || mime.includes('jpg')) return '.jpg';
   if (mime.includes('png')) return '.png';
   if (mime.includes('webp')) return '.webp';
   if (mime.includes('gif')) return '.gif';
   if (mime.includes('heic')) return '.heic';
+  if (mime.includes('svg')) return '.svg';
+  if (mime.includes('bmp')) return '.bmp';
+  if (mime.includes('ico') || mime.includes('icon')) return '.ico';
+  // Video
+  if (mime.includes('mp4')) return '.mp4';
+  if (mime.includes('webm')) return '.webm';
+  if (mime.includes('ogg') && mime.includes('video')) return '.ogv';
+  if (mime.includes('quicktime') || mime.includes('mov')) return '.mov';
+  if (mime.includes('avi') || mime.includes('x-msvideo')) return '.avi';
+  if (mime.includes('matroska') || mime.includes('mkv')) return '.mkv';
+  // Audio
+  if (mime.includes('mpeg') && mime.includes('audio')) return '.mp3';
+  if (mime.includes('ogg')) return '.ogg';
+  if (mime.includes('wav')) return '.wav';
+  if (mime.includes('flac')) return '.flac';
+  if (mime.includes('aac')) return '.aac';
+  if (mime.includes('m4a') || (mime.includes('mp4') && mime.includes('audio'))) return '.m4a';
+  // Documents
+  if (mime.includes('pdf')) return '.pdf';
+  if (mime.includes('zip')) return '.zip';
+  if (mime.includes('gzip') || mime.includes('gz')) return '.gz';
+  if (mime.includes('x-tar')) return '.tar';
+  if (mime.includes('x-7z')) return '.7z';
+  if (mime.includes('x-rar')) return '.rar';
+  if (mime.includes('json')) return '.json';
+  if (mime.includes('xml')) return '.xml';
+  if (mime.includes('csv')) return '.csv';
+  if (mime.includes('plain')) return '.txt';
+  if (mime.includes('html')) return '.html';
+  if (mime.includes('javascript')) return '.js';
+  if (mime.includes('msword') || mime.includes('wordprocessing')) return '.docx';
+  if (mime.includes('spreadsheet') || mime.includes('excel')) return '.xlsx';
+  if (mime.includes('presentation') || mime.includes('powerpoint')) return '.pptx';
   return '.bin';
 }
 
@@ -212,19 +251,38 @@ export class MegaNoteStorage {
     await writeJsonFile(this.notesFolder, `NOTE_${note.id}.json`, wrapMaybeEncrypted(note, passphrase));
   }
 
-  async uploadAttachment(id: string, buffer: Buffer, mimeType?: string | null) {
+  async uploadAttachment(id: string, buffer: Buffer, mimeType?: string | null, originalName?: string) {
     await this.init();
     if (!this.attachmentsFolder) throw new Error('mega_folder_unavailable');
-    const name = `ATT_${id}${extensionFromMime(mimeType)}`;
+    let name = `ATT_${id}${extensionFromMime(mimeType, originalName)}`;
+    if (originalName) {
+      const extIndex = originalName.lastIndexOf('.');
+      if (extIndex > 0) {
+        const base = originalName.slice(0, extIndex);
+        const ext = originalName.slice(extIndex);
+        name = `${base}_${id}${ext}`;
+      } else {
+        name = `${originalName}_${id}${extensionFromMime(mimeType, originalName)}`;
+      }
+    }
     const upload = this.attachmentsFolder.upload({ name, allowUploadBuffer: true, target: this.attachmentsFolder }, buffer);
     const created = await upload.complete;
     await pruneNamedFiles(this.attachmentsFolder, name, created?.nodeId);
   }
 
+  async getStorageQuota(): Promise<{ spaceUsed: number; spaceTotal: number; spaceFree: number }> {
+    await this.init();
+    if (!this.storage) throw new Error('mega_folder_unavailable');
+    const info = await (this.storage as any).getAccountInfo();
+    const spaceUsed = Number(info?.spaceUsed ?? 0);
+    const spaceTotal = Number(info?.spaceTotal ?? 0);
+    return { spaceUsed, spaceTotal, spaceFree: Math.max(0, spaceTotal - spaceUsed) };
+  }
+
   private async findAttachmentFile(id: string): Promise<MegaFile | null> {
     await this.init();
     if (!this.attachmentsFolder) throw new Error('mega_folder_unavailable');
-    return this.attachmentsFolder.children?.find((child: MegaFile) => child.name?.startsWith(`ATT_${id}`)) ?? null;
+    return this.attachmentsFolder.children?.find((child: MegaFile) => child.name?.includes(id)) ?? null;
   }
 
   async downloadAttachment(id: string) {
